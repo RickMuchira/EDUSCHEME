@@ -29,13 +29,8 @@ export default function RootLayout({
         </div>
         <Toaster 
           position="top-right"
-          toastOptions={{
-            style: {
-              background: 'hsl(var(--background))',
-              color: 'hsl(var(--foreground))',
-              border: '1px solid hsl(var(--border))',
-            },
-          }}
+          richColors
+          closeButton
         />
         <div id="modal-root" />
       </body>

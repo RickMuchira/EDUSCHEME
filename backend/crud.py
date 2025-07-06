@@ -1,6 +1,6 @@
 # backend/crud.py
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_, or_, desc
+from sqlalchemy import and_, or_, desc, func
 from typing import List, Optional, Dict, Any
 import models, schemas
 
@@ -17,6 +17,8 @@ class BaseCRUD:
             query = query.filter(self.model.is_active == is_active)
         if hasattr(self.model, 'display_order'):
             query = query.order_by(self.model.display_order, self.model.id)
+        else:
+            query = query.order_by(self.model.id)
         return query.offset(skip).limit(limit).all()
 
     def create(self, db: Session, *, obj_in):
@@ -69,6 +71,15 @@ class SchoolLevelCRUD(BaseCRUD):
             and_(self.model.school_id == school_id, self.model.is_active == True)
         ).order_by(self.model.display_order).all()
 
+    def get_by_code(self, db: Session, code: str, school_id: int):
+        return db.query(self.model).filter(
+            and_(
+                self.model.code == code,
+                self.model.school_id == school_id,
+                self.model.is_active == True
+            )
+        ).first()
+
     def get_with_hierarchy(self, db: Session, school_level_id: int):
         return db.query(self.model).options(
             joinedload(self.model.forms_grades)
@@ -77,6 +88,23 @@ class SchoolLevelCRUD(BaseCRUD):
             .joinedload(models.Subject.topics)
             .joinedload(models.Topic.subtopics)
         ).filter(self.model.id == school_level_id).first()
+
+    def create(self, db: Session, *, obj_in):
+        # Ensure we have a school_id, default to 1 if not provided
+        if isinstance(obj_in, dict):
+            if 'school_id' not in obj_in or obj_in['school_id'] is None:
+                obj_in['school_id'] = 1
+            db_obj = self.model(**obj_in)
+        else:
+            obj_data = obj_in.dict()
+            if 'school_id' not in obj_data or obj_data['school_id'] is None:
+                obj_data['school_id'] = 1
+            db_obj = self.model(**obj_data)
+        
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
+        return db_obj
 
 class FormGradeCRUD(BaseCRUD):
     def __init__(self):
@@ -116,6 +144,15 @@ class TermCRUD(BaseCRUD):
             )
         ).all()
 
+    def get_by_code(self, db: Session, code: str, form_grade_id: int):
+        return db.query(self.model).filter(
+            and_(
+                self.model.code == code,
+                self.model.form_grade_id == form_grade_id,
+                self.model.is_active == True
+            )
+        ).first()
+
 class SubjectCRUD(BaseCRUD):
     def __init__(self):
         super().__init__(models.Subject)
@@ -134,12 +171,7 @@ class SubjectCRUD(BaseCRUD):
             )
         ).first()
 
-    def get_with_topics(self, db: Session, subject_id: int):
-        return db.query(self.model).options(
-            joinedload(self.model.topics).joinedload(models.Topic.subtopics)
-        ).filter(self.model.id == subject_id).first()
-
-    def search_subjects(self, db: Session, query: str, limit: int = 20):
+    def search_subjects(self, db: Session, query: str, limit: int = 100):
         return db.query(self.model).filter(
             and_(
                 or_(
@@ -151,6 +183,11 @@ class SubjectCRUD(BaseCRUD):
             )
         ).limit(limit).all()
 
+    def get_with_topics(self, db: Session, subject_id: int):
+        return db.query(self.model).options(
+            joinedload(self.model.topics).joinedload(models.Topic.subtopics)
+        ).filter(self.model.id == subject_id).first()
+
 class TopicCRUD(BaseCRUD):
     def __init__(self):
         super().__init__(models.Topic)
@@ -159,11 +196,6 @@ class TopicCRUD(BaseCRUD):
         return db.query(self.model).filter(
             and_(self.model.subject_id == subject_id, self.model.is_active == True)
         ).order_by(self.model.display_order).all()
-
-    def get_with_subtopics(self, db: Session, topic_id: int):
-        return db.query(self.model).options(
-            joinedload(self.model.subtopics)
-        ).filter(self.model.id == topic_id).first()
 
     def search_topics(self, db: Session, query: str, subject_id: Optional[int] = None):
         filters = [
@@ -178,6 +210,15 @@ class TopicCRUD(BaseCRUD):
             filters.append(self.model.subject_id == subject_id)
         
         return db.query(self.model).filter(and_(*filters)).all()
+
+    def get_by_duration(self, db: Session, min_weeks: int, max_weeks: int):
+        return db.query(self.model).filter(
+            and_(
+                self.model.duration_weeks >= min_weeks,
+                self.model.duration_weeks <= max_weeks,
+                self.model.is_active == True
+            )
+        ).all()
 
 class SubtopicCRUD(BaseCRUD):
     def __init__(self):

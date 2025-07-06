@@ -104,13 +104,78 @@ def create_school_level(
 ):
     """Create a new school level (Primary, Secondary, High School, etc.)"""
     try:
+        print(f"Creating school level with data: {school_level}")
+        
+        # Check if code is unique within school
+        existing = crud.school_level.get_by_code(
+            db=db, code=school_level.code, school_id=school_level.school_id
+        )
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"School level with code '{school_level.code}' already exists in this school"
+            )
+        
         db_school_level = crud.school_level.create(db=db, obj_in=school_level)
+        print(f"Successfully created: {db_school_level}")
+        
         return schemas.ResponseWrapper(
             message="School level created successfully",
-            data=db_school_level
+            data=schemas.SchoolLevel.model_validate(db_school_level)
         )
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Error creating school level: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/v1/admin/school-levels/debug/", response_model=schemas.ResponseWrapper)
+def debug_create_school_level(
+    request_data: dict,
+    db: Session = Depends(get_db)
+):
+    """Debug endpoint to see what data we're receiving"""
+    try:
+        print("=== DEBUG: Received data ===")
+        print(f"Request data: {request_data}")
+        print(f"Request data type: {type(request_data)}")
+        
+        # Try to create the schema
+        try:
+            school_level_data = schemas.SchoolLevelCreate(**request_data)
+            print(f"Schema validation successful: {school_level_data}")
+        except Exception as schema_error:
+            print(f"Schema validation error: {schema_error}")
+            return schemas.ResponseWrapper(
+                success=False,
+                message=f"Schema validation failed: {str(schema_error)}",
+                data=None
+            )
+        
+        # Try to create in database
+        try:
+            db_school_level = crud.school_level.create(db=db, obj_in=school_level_data)
+            print(f"Database creation successful: {db_school_level}")
+            
+            return schemas.ResponseWrapper(
+                message="School level created successfully (debug)",
+                data=db_school_level
+            )
+        except Exception as db_error:
+            print(f"Database error: {db_error}")
+            return schemas.ResponseWrapper(
+                success=False,
+                message=f"Database error: {str(db_error)}",
+                data=None
+            )
+            
+    except Exception as e:
+        print(f"General error: {e}")
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"General error: {str(e)}",
+            data=None
+        )
 
 @app.get("/api/v1/admin/school-levels/", response_model=schemas.ResponseWrapper)
 def list_school_levels(
@@ -125,10 +190,9 @@ def list_school_levels(
             school_levels = crud.school_level.get_by_school(db=db, school_id=school_id)
         else:
             school_levels = crud.school_level.get_multi(db=db, skip=skip, limit=limit)
-        
         return schemas.ResponseWrapper(
             message="School levels retrieved successfully",
-            data=school_levels,
+            data=[schemas.SchoolLevel.model_validate(sl) for sl in school_levels],
             total=len(school_levels)
         )
     except Exception as e:
@@ -140,29 +204,27 @@ def get_school_level(
     include_hierarchy: bool = Query(False),
     db: Session = Depends(get_db)
 ):
-    """Get a specific school level by ID"""
+    """Get a single school level by ID, optionally including hierarchy"""
     try:
         if include_hierarchy:
             school_level = crud.school_level.get_with_hierarchy(db=db, school_level_id=school_level_id)
+            # You may want to use a nested schema here if you have one
+            # For now, fallback to normal
         else:
             school_level = crud.school_level.get(db=db, id=school_level_id)
-        
         if not school_level:
             raise HTTPException(status_code=404, detail="School level not found")
-        
         return schemas.ResponseWrapper(
             message="School level retrieved successfully",
-            data=school_level
+            data=schemas.SchoolLevel.model_validate(school_level)
         )
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.put("/api/v1/admin/school-levels/{school_level_id}", response_model=schemas.ResponseWrapper)
 def update_school_level(
+    school_level_update: schemas.SchoolLevelUpdate,
     school_level_id: int = Path(..., gt=0),
-    school_level_update: schemas.SchoolLevelUpdate = None,
     db: Session = Depends(get_db)
 ):
     """Update a school level"""
@@ -177,10 +239,8 @@ def update_school_level(
         
         return schemas.ResponseWrapper(
             message="School level updated successfully",
-            data=updated_school_level
+            data=schemas.SchoolLevel.model_validate(updated_school_level)
         )
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -229,7 +289,7 @@ def create_form_grade(
         db_form_grade = crud.form_grade.create(db=db, obj_in=form_grade)
         return schemas.ResponseWrapper(
             message="Form/Grade created successfully",
-            data=db_form_grade
+            data=schemas.FormGrade.model_validate(db_form_grade)
         )
     except HTTPException:
         raise
@@ -252,8 +312,24 @@ def list_forms_grades(
         
         return schemas.ResponseWrapper(
             message="Forms/Grades retrieved successfully",
-            data=forms_grades,
+            data=[schemas.FormGrade.model_validate(fg) for fg in forms_grades],
             total=len(forms_grades)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/forms-grades/{form_grade_id}", response_model=schemas.ResponseWrapper)
+def get_form_grade(
+    form_grade_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    try:
+        form_grade = crud.form_grade.get(db=db, id=form_grade_id)
+        if not form_grade:
+            raise HTTPException(status_code=404, detail="Form grade not found")
+        return schemas.ResponseWrapper(
+            message="Form grade retrieved successfully",
+            data=schemas.FormGrade.model_validate(form_grade)
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -269,7 +345,7 @@ def create_term(
         db_term = crud.term.create(db=db, obj_in=term)
         return schemas.ResponseWrapper(
             message="Term created successfully",
-            data=db_term
+            data=schemas.Term.model_validate(db_term)
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -284,17 +360,33 @@ def list_terms(
 ):
     """List all terms, with various filters"""
     try:
-        if current_only:
-            terms = crud.term.get_current_terms(db=db)
-        elif form_grade_id:
+        if form_grade_id:
             terms = crud.term.get_by_form_grade(db=db, form_grade_id=form_grade_id)
+        elif current_only:
+            terms = crud.term.get_current_terms(db=db)
         else:
             terms = crud.term.get_multi(db=db, skip=skip, limit=limit)
         
         return schemas.ResponseWrapper(
             message="Terms retrieved successfully",
-            data=terms,
+            data=[schemas.Term.model_validate(t) for t in terms],
             total=len(terms)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/terms/{term_id}", response_model=schemas.ResponseWrapper)
+def get_term(
+    term_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    try:
+        term = crud.term.get(db=db, id=term_id)
+        if not term:
+            raise HTTPException(status_code=404, detail="Term not found")
+        return schemas.ResponseWrapper(
+            message="Term retrieved successfully",
+            data=schemas.Term.model_validate(term)
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -320,7 +412,7 @@ def create_subject(
         db_subject = crud.subject.create(db=db, obj_in=subject)
         return schemas.ResponseWrapper(
             message="Subject created successfully",
-            data=db_subject
+            data=schemas.Subject.model_validate(db_subject)
         )
     except HTTPException:
         raise
@@ -337,16 +429,16 @@ def list_subjects(
 ):
     """List all subjects with search functionality"""
     try:
-        if search:
-            subjects = crud.subject.search_subjects(db=db, query=search, limit=limit)
-        elif term_id:
+        if term_id:
             subjects = crud.subject.get_by_term(db=db, term_id=term_id)
+        elif search:
+            subjects = crud.subject.search_subjects(db=db, query=search)
         else:
             subjects = crud.subject.get_multi(db=db, skip=skip, limit=limit)
         
         return schemas.ResponseWrapper(
             message="Subjects retrieved successfully",
-            data=subjects,
+            data=[schemas.Subject.model_validate(s) for s in subjects],
             total=len(subjects)
         )
     except Exception as e:
@@ -360,17 +452,13 @@ def get_subject(
 ):
     """Get a specific subject by ID"""
     try:
-        if include_topics:
-            subject = crud.subject.get_with_topics(db=db, subject_id=subject_id)
-        else:
-            subject = crud.subject.get(db=db, id=subject_id)
-        
+        subject = crud.subject.get(db=db, id=subject_id)
         if not subject:
             raise HTTPException(status_code=404, detail="Subject not found")
         
         return schemas.ResponseWrapper(
             message="Subject retrieved successfully",
-            data=subject
+            data=schemas.Subject.model_validate(subject)
         )
     except HTTPException:
         raise
@@ -388,7 +476,7 @@ def create_topic(
         db_topic = crud.topic.create(db=db, obj_in=topic)
         return schemas.ResponseWrapper(
             message="Topic created successfully",
-            data=db_topic
+            data=schemas.Topic.model_validate(db_topic)
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -403,17 +491,33 @@ def list_topics(
 ):
     """List all topics with search functionality"""
     try:
-        if search:
-            topics = crud.topic.search_topics(db=db, query=search, subject_id=subject_id)
-        elif subject_id:
+        if subject_id:
             topics = crud.topic.get_by_subject(db=db, subject_id=subject_id)
+        elif search:
+            topics = crud.topic.search_topics(db=db, query=search)
         else:
             topics = crud.topic.get_multi(db=db, skip=skip, limit=limit)
         
         return schemas.ResponseWrapper(
             message="Topics retrieved successfully",
-            data=topics,
+            data=[schemas.Topic.model_validate(t) for t in topics],
             total=len(topics)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/topics/{topic_id}", response_model=schemas.ResponseWrapper)
+def get_topic(
+    topic_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    try:
+        topic = crud.topic.get(db=db, id=topic_id)
+        if not topic:
+            raise HTTPException(status_code=404, detail="Topic not found")
+        return schemas.ResponseWrapper(
+            message="Topic retrieved successfully",
+            data=schemas.Topic.model_validate(topic)
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -429,7 +533,7 @@ def create_subtopic(
         db_subtopic = crud.subtopic.create(db=db, obj_in=subtopic)
         return schemas.ResponseWrapper(
             message="Subtopic created successfully",
-            data=db_subtopic
+            data=schemas.Subtopic.model_validate(db_subtopic)
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -446,19 +550,35 @@ def list_subtopics(
 ):
     """List all subtopics with various filters"""
     try:
-        if search:
-            subtopics = crud.subtopic.search_subtopics(db=db, query=search, topic_id=topic_id)
-        elif min_lessons and max_lessons:
-            subtopics = crud.subtopic.get_by_duration(db=db, min_lessons=min_lessons, max_lessons=max_lessons)
-        elif topic_id:
+        if topic_id:
             subtopics = crud.subtopic.get_by_topic(db=db, topic_id=topic_id)
+        elif search:
+            subtopics = crud.subtopic.search_subtopics(db=db, query=search)
+        elif min_lessons is not None and max_lessons is not None:
+            subtopics = crud.subtopic.get_by_duration(db=db, min_lessons=min_lessons, max_lessons=max_lessons)
         else:
             subtopics = crud.subtopic.get_multi(db=db, skip=skip, limit=limit)
         
         return schemas.ResponseWrapper(
             message="Subtopics retrieved successfully",
-            data=subtopics,
+            data=[schemas.Subtopic.model_validate(st) for st in subtopics],
             total=len(subtopics)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/subtopics/{subtopic_id}", response_model=schemas.ResponseWrapper)
+def get_subtopic(
+    subtopic_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    try:
+        subtopic = crud.subtopic.get(db=db, id=subtopic_id)
+        if not subtopic:
+            raise HTTPException(status_code=404, detail="Subtopic not found")
+        return schemas.ResponseWrapper(
+            message="Subtopic retrieved successfully",
+            data=schemas.Subtopic.model_validate(subtopic)
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

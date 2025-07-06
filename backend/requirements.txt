@@ -1,4 +1,27 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-sqlalchemy==2.0.23
-pydantic[email]==2.5.0
+# Core FastAPI dependencies
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Database
+sqlalchemy
+pydantic
+pydantic[email]
+
+# Development and utilities
+python-dotenv
+typing-extensions
+
+# Optional: For production deployment
+gunicorn
+
+# Optional: For enhanced logging
+structlog
+
+# Optional: For CORS (already included in FastAPI)
+# fastapi-cors
+
+# Optional: For authentication (if needed later)
+# python-jose[cryptography]
+# passlib[bcrypt]
+# python-multipart

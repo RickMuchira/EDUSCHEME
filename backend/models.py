@@ -46,6 +46,7 @@ class SchoolLevel(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)  # Primary, Secondary, High School
+    code = Column(String(20), nullable=False)  # PS, SS, HS, etc.
     description = Column(Text)
     display_order = Column(Integer, default=0)
     school_id = Column(Integer, ForeignKey("schools.id"), nullable=False)
