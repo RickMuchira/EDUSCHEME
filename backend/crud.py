@@ -11,10 +11,14 @@ class BaseCRUD:
     def get(self, db: Session, id: int):
         return db.query(self.model).filter(self.model.id == id).first()
 
-    def get_multi(self, db: Session, *, skip: int = 0, limit: int = 100, is_active: bool = True):
+    def get_multi(self, db: Session, *, skip: int = 0, limit: int = 100, is_active: Optional[bool] = None):
+        """Get multiple records with optional active filter"""
         query = db.query(self.model)
-        if hasattr(self.model, 'is_active'):
+        
+        # Only filter by is_active if explicitly specified
+        if is_active is not None and hasattr(self.model, 'is_active'):
             query = query.filter(self.model.is_active == is_active)
+        
         if hasattr(self.model, 'display_order'):
             query = query.order_by(self.model.display_order, self.model.id)
         else:
@@ -66,19 +70,32 @@ class SchoolLevelCRUD(BaseCRUD):
     def __init__(self):
         super().__init__(models.SchoolLevel)
 
-    def get_by_school(self, db: Session, school_id: int):
-        return db.query(self.model).filter(
-            and_(self.model.school_id == school_id, self.model.is_active == True)
-        ).order_by(self.model.display_order).all()
+    def get_all_including_inactive(self, db: Session, skip: int = 0, limit: int = 100):
+        """Get all school levels including inactive ones"""
+        return db.query(self.model).order_by(
+            self.model.display_order, 
+            self.model.id
+        ).offset(skip).limit(limit).all()
 
-    def get_by_code(self, db: Session, code: str, school_id: int):
-        return db.query(self.model).filter(
-            and_(
-                self.model.code == code,
-                self.model.school_id == school_id,
-                self.model.is_active == True
-            )
-        ).first()
+    def get_by_school(self, db: Session, school_id: int, include_inactive: bool = False):
+        """Get school levels by school ID with option to include inactive"""
+        query = db.query(self.model).filter(self.model.school_id == school_id)
+        
+        if not include_inactive:
+            query = query.filter(self.model.is_active == True)
+            
+        return query.order_by(self.model.display_order).all()
+
+    def get_by_code(self, db: Session, code: str, school_id: int, include_inactive: bool = False):
+        filters = [
+            self.model.code == code,
+            self.model.school_id == school_id
+        ]
+        
+        if not include_inactive:
+            filters.append(self.model.is_active == True)
+            
+        return db.query(self.model).filter(and_(*filters)).first()
 
     def get_with_hierarchy(self, db: Session, school_level_id: int):
         return db.query(self.model).options(

@@ -180,6 +180,7 @@ def debug_create_school_level(
 @app.get("/api/v1/admin/school-levels/", response_model=schemas.ResponseWrapper)
 def list_school_levels(
     school_id: Optional[int] = Query(None),
+    include_inactive: bool = Query(True, description="Include inactive school levels"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db)
@@ -187,9 +188,23 @@ def list_school_levels(
     """List all school levels, optionally filtered by school"""
     try:
         if school_id:
-            school_levels = crud.school_level.get_by_school(db=db, school_id=school_id)
+            school_levels = crud.school_level.get_by_school(
+                db=db, 
+                school_id=school_id, 
+                include_inactive=include_inactive
+            )
         else:
-            school_levels = crud.school_level.get_multi(db=db, skip=skip, limit=limit)
+            if include_inactive:
+                # Get all school levels including inactive
+                school_levels = crud.school_level.get_all_including_inactive(
+                    db=db, skip=skip, limit=limit
+                )
+            else:
+                # Get only active school levels
+                school_levels = crud.school_level.get_multi(
+                    db=db, skip=skip, limit=limit, is_active=True
+                )
+                
         return schemas.ResponseWrapper(
             message="School levels retrieved successfully",
             data=[schemas.SchoolLevel.model_validate(sl) for sl in school_levels],
