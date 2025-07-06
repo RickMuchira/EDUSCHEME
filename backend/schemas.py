@@ -19,8 +19,10 @@ class BaseSchema(BaseModel):
 class SchoolLevelBase(BaseSchema):
     name: str = Field(..., min_length=1, max_length=100, description="School level name")
     code: str = Field(..., min_length=1, max_length=20, description="School level code")
+    description: Optional[str] = Field(None, description="School level description")
     display_order: int = Field(default=0, ge=0, description="Display order")
     school_id: Optional[int] = Field(None, description="Associated school ID")
+    grade_type: str = Field(default="grade", pattern="^(form|grade)$", description="Type of grades: 'form' or 'grade'")
     is_active: bool = Field(default=True, description="Whether the school level is active")
 
 class SchoolLevelCreate(SchoolLevelBase):
@@ -30,8 +32,10 @@ class SchoolLevelCreate(SchoolLevelBase):
 class SchoolLevelUpdate(BaseSchema):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     code: Optional[str] = Field(None, min_length=1, max_length=20)
+    description: Optional[str] = None
     display_order: Optional[int] = Field(None, ge=0)
     school_id: Optional[int] = None
+    grade_type: Optional[str] = Field(None, pattern="^(form|grade)$")
     is_active: Optional[bool] = None
 
 class SchoolLevel(SchoolLevelBase):
@@ -39,11 +43,37 @@ class SchoolLevel(SchoolLevelBase):
     created_at: datetime
     updated_at: datetime
 
+# ============= SECTION SCHEMAS =============
+
+class SectionBase(BaseSchema):
+    name: str = Field(..., min_length=1, max_length=100, description="Section name")
+    description: Optional[str] = Field(None, description="Section description")
+    display_order: int = Field(default=0, ge=0, description="Display order")
+    school_level_id: int = Field(..., gt=0, description="Associated school level ID")
+    is_active: bool = Field(default=True, description="Whether the section is active")
+
+class SectionCreate(SectionBase):
+    pass
+
+class SectionUpdate(BaseSchema):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    display_order: Optional[int] = Field(None, ge=0)
+    school_level_id: Optional[int] = Field(None, gt=0)
+    is_active: Optional[bool] = None
+
+class Section(SectionBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    school_level: Optional[SchoolLevel] = None
+
 # ============= FORM/GRADE SCHEMAS =============
 
 class FormGradeBase(BaseSchema):
     name: str = Field(..., min_length=1, max_length=100, description="Form/Grade name")
     code: str = Field(..., min_length=1, max_length=20, description="Form/Grade code")
+    description: Optional[str] = Field(None, description="Form/Grade description")
     display_order: int = Field(default=0, ge=0, description="Display order")
     school_level_id: int = Field(..., gt=0, description="Associated school level ID")
     is_active: bool = Field(default=True, description="Whether the form/grade is active")
@@ -54,6 +84,7 @@ class FormGradeCreate(FormGradeBase):
 class FormGradeUpdate(BaseSchema):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     code: Optional[str] = Field(None, min_length=1, max_length=20)
+    description: Optional[str] = None
     display_order: Optional[int] = Field(None, ge=0)
     school_level_id: Optional[int] = Field(None, gt=0)
     is_active: Optional[bool] = None
@@ -219,9 +250,7 @@ class AdminUserUpdate(BaseSchema):
 class AdminUser(AdminUserBase):
     id: int
     created_at: datetime
-    last_login: Optional[datetime] = None
-
-# ============= NESTED SCHEMAS FOR HIERARCHY =============
+    last_login: Optional[datetime] = None# ============= NESTED SCHEMAS FOR HIERARCHY =============
 
 class SubtopicWithoutTopic(BaseSchema):
     id: int
@@ -248,13 +277,17 @@ class TermWithSubjects(Term):
 class FormGradeWithTerms(FormGrade):
     terms: List[TermWithSubjects] = []
 
-class SchoolLevelWithForms(SchoolLevel):
+class SectionWithForms(Section):
     forms_grades: List[FormGradeWithTerms] = []
+
+class SchoolLevelWithSections(SchoolLevel):
+    sections: List[SectionWithForms] = []
 
 # ============= UTILITY SCHEMAS =============
 
 class HierarchyStats(BaseSchema):
     total_school_levels: int
+    total_sections: int
     total_forms_grades: int
     total_terms: int
     total_subjects: int
@@ -447,3 +480,4 @@ class ErrorResponse(BaseSchema):
     detail: Optional[str] = None
     errors: Optional[List[ErrorDetail]] = None
     timestamp: datetime = Field(default_factory=datetime.now)
+

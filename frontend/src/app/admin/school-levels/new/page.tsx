@@ -23,6 +23,7 @@ const schoolLevelSchema = z.object({
   display_order: z.number().min(0, 'Display order must be 0 or greater').default(0),
   school_id: z.number().optional(),
   is_active: z.boolean().default(true),
+  grade_type: z.enum(['form', 'grade']).default('grade'),
 })
 
 type SchoolLevelFormData = z.infer<typeof schoolLevelSchema>
@@ -38,6 +39,7 @@ export default function CreateSchoolLevelPage() {
       code: '',
       display_order: 0,
       is_active: true,
+      grade_type: 'grade',
     },
   })
 
@@ -51,6 +53,7 @@ export default function CreateSchoolLevelPage() {
         display_order: data.display_order,
         school_id: data.school_id || 1, // Default to school_id 1 if not provided
         is_active: data.is_active,
+        grade_type: data.grade_type,
       }
 
       const response = await schoolLevelApi.create(schoolLevelData)
@@ -216,6 +219,30 @@ export default function CreateSchoolLevelPage() {
                         Whether this school level is active and can be used
                       </FormDescription>
                     </div>
+                  </FormItem>
+                )}
+              />
+
+              {/* Grade Type Field */}
+              <FormField
+                control={form.control}
+                name="grade_type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Grade Type *</FormLabel>
+                    <FormControl>
+                      <select
+                        {...field}
+                        className="border rounded px-3 py-2 w-full"
+                      >
+                        <option value="grade">Grade (e.g., Grade 1, Grade 2)</option>
+                        <option value="form">Form (e.g., Form 1, Form 2)</option>
+                      </select>
+                    </FormControl>
+                    <FormDescription>
+                      Choose whether this school level uses Grades or Forms
+                    </FormDescription>
+                    <FormMessage />
                   </FormItem>
                 )}
               />

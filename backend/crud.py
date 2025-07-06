@@ -99,7 +99,8 @@ class SchoolLevelCRUD(BaseCRUD):
 
     def get_with_hierarchy(self, db: Session, school_level_id: int):
         return db.query(self.model).options(
-            joinedload(self.model.forms_grades)
+            joinedload(self.model.sections)
+            .joinedload(models.Section.forms_grades)
             .joinedload(models.FormGrade.terms)
             .joinedload(models.Term.subjects)
             .joinedload(models.Subject.topics)
@@ -123,16 +124,54 @@ class SchoolLevelCRUD(BaseCRUD):
         db.refresh(db_obj)
         return db_obj
 
+class SectionCRUD(BaseCRUD):
+    def __init__(self):
+        super().__init__(models.Section)
+
+    def get_by_school_level(self, db: Session, school_level_id: int, include_inactive: bool = False):
+        """Get sections by school level ID with option to include inactive"""
+        query = db.query(self.model).filter(self.model.school_level_id == school_level_id)
+        
+        if not include_inactive:
+            query = query.filter(self.model.is_active == True)
+            
+        return query.order_by(self.model.display_order).all()
+
+    def get_by_code(self, db: Session, code: str, school_level_id: int, include_inactive: bool = False):
+        filters = [
+            self.model.code == code,
+            self.model.school_level_id == school_level_id
+        ]
+        
+        if not include_inactive:
+            filters.append(self.model.is_active == True)
+            
+        return db.query(self.model).filter(and_(*filters)).first()
+
+    def get_with_forms(self, db: Session, section_id: int):
+        return db.query(self.model).options(
+            joinedload(self.model.forms_grades)
+            .joinedload(models.FormGrade.terms)
+            .joinedload(models.Term.subjects)
+            .joinedload(models.Subject.topics)
+            .joinedload(models.Topic.subtopics)
+        ).filter(self.model.id == section_id).first()
+
 class FormGradeCRUD(BaseCRUD):
     def __init__(self):
         super().__init__(models.FormGrade)
 
-    def get_by_school_level(self, db: Session, school_level_id: int):
-        return db.query(self.model).filter(
-            and_(self.model.school_level_id == school_level_id, self.model.is_active == True)
-        ).order_by(self.model.display_order).all()
+    def get_by_school_level(self, db: Session, school_level_id: int, include_inactive: bool = False):
+        """Get forms/grades by school level ID with option to include inactive"""
+        query = db.query(self.model).filter(self.model.school_level_id == school_level_id)
+        
+        if not include_inactive:
+            query = query.filter(self.model.is_active == True)
+            
+        return query.order_by(self.model.display_order).all()
 
     def get_by_code(self, db: Session, code: str, school_level_id: int):
+        """Get form/grade by code within a school level"""
         return db.query(self.model).filter(
             and_(
                 self.model.code == code,
@@ -140,6 +179,8 @@ class FormGradeCRUD(BaseCRUD):
                 self.model.is_active == True
             )
         ).first()
+
+
 
 class TermCRUD(BaseCRUD):
     def __init__(self):
@@ -277,7 +318,8 @@ class HierarchyCRUD:
     def get_full_hierarchy(self, db: Session, school_id: int):
         """Get complete curriculum hierarchy for a school"""
         return db.query(models.SchoolLevel).options(
-            joinedload(models.SchoolLevel.forms_grades)
+            joinedload(models.SchoolLevel.sections)
+            .joinedload(models.Section.forms_grades)
             .joinedload(models.FormGrade.terms)
             .joinedload(models.Term.subjects)
             .joinedload(models.Subject.topics)
@@ -297,36 +339,44 @@ class HierarchyCRUD:
         
         school_levels = base_query.filter(models.SchoolLevel.is_active == True).count()
         
+        # Get sections count
+        sections = db.query(models.Section).join(models.SchoolLevel).filter(
+            models.Section.is_active == True
+        )
+        if school_id:
+            sections = sections.filter(models.SchoolLevel.school_id == school_id)
+        sections_count = sections.count()
+        
         # Get related counts
-        forms_grades = db.query(models.FormGrade).join(models.SchoolLevel).filter(
+        forms_grades = db.query(models.FormGrade).join(models.Section).join(models.SchoolLevel).filter(
             models.FormGrade.is_active == True
         )
         if school_id:
             forms_grades = forms_grades.filter(models.SchoolLevel.school_id == school_id)
         forms_grades_count = forms_grades.count()
 
-        terms = db.query(models.Term).join(models.FormGrade).join(models.SchoolLevel).filter(
+        terms = db.query(models.Term).join(models.FormGrade).join(models.Section).join(models.SchoolLevel).filter(
             models.Term.is_active == True
         )
         if school_id:
             terms = terms.filter(models.SchoolLevel.school_id == school_id)
         terms_count = terms.count()
 
-        subjects = db.query(models.Subject).join(models.Term).join(models.FormGrade).join(models.SchoolLevel).filter(
+        subjects = db.query(models.Subject).join(models.Term).join(models.FormGrade).join(models.Section).join(models.SchoolLevel).filter(
             models.Subject.is_active == True
         )
         if school_id:
             subjects = subjects.filter(models.SchoolLevel.school_id == school_id)
         subjects_count = subjects.count()
 
-        topics = db.query(models.Topic).join(models.Subject).join(models.Term).join(models.FormGrade).join(models.SchoolLevel).filter(
+        topics = db.query(models.Topic).join(models.Subject).join(models.Term).join(models.FormGrade).join(models.Section).join(models.SchoolLevel).filter(
             models.Topic.is_active == True
         )
         if school_id:
             topics = topics.filter(models.SchoolLevel.school_id == school_id)
         topics_count = topics.count()
 
-        subtopics = db.query(models.Subtopic).join(models.Topic).join(models.Subject).join(models.Term).join(models.FormGrade).join(models.SchoolLevel).filter(
+        subtopics = db.query(models.Subtopic).join(models.Topic).join(models.Subject).join(models.Term).join(models.FormGrade).join(models.Section).join(models.SchoolLevel).filter(
             models.Subtopic.is_active == True
         )
         if school_id:
@@ -335,6 +385,7 @@ class HierarchyCRUD:
 
         return {
             "total_school_levels": school_levels,
+            "total_sections": sections_count,
             "total_forms_grades": forms_grades_count,
             "total_terms": terms_count,
             "total_subjects": subjects_count,
@@ -350,6 +401,7 @@ class HierarchyCRUD:
 
 # Initialize CRUD instances
 school_level = SchoolLevelCRUD()
+section = SectionCRUD()
 form_grade = FormGradeCRUD()
 term = TermCRUD()
 subject = SubjectCRUD()

@@ -283,6 +283,126 @@ def delete_school_level(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+# Sections Endpoints
+@app.post("/api/v1/admin/sections/", response_model=schemas.ResponseWrapper)
+def create_section(
+    section: schemas.SectionCreate,
+    db: Session = Depends(get_db)
+):
+    """Create a new section (Lower Primary, Upper Primary, etc.)"""
+    try:
+        db_section = crud.section.create(db=db, obj_in=section)
+        return schemas.ResponseWrapper(
+            message="Section created successfully",
+            data=schemas.Section.model_validate(db_section)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/sections/", response_model=schemas.ResponseWrapper)
+def list_sections(
+    school_level_id: Optional[int] = Query(None),
+    include_inactive: bool = Query(True, description="Include inactive sections"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
+):
+    """List all sections, optionally filtered by school level"""
+    try:
+        if school_level_id:
+            sections = crud.section.get_by_school_level(
+                db=db, 
+                school_level_id=school_level_id, 
+                include_inactive=include_inactive
+            )
+        else:
+            if include_inactive:
+                sections = crud.section.get_multi(db=db, skip=skip, limit=limit)
+            else:
+                sections = crud.section.get_multi(db=db, skip=skip, limit=limit, is_active=True)
+        
+        return schemas.ResponseWrapper(
+            message="Sections retrieved successfully",
+            data=[schemas.Section.model_validate(s) for s in sections],
+            total=len(sections)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/sections/{section_id}", response_model=schemas.ResponseWrapper)
+def get_section(
+    section_id: int = Path(..., gt=0),
+    include_hierarchy: bool = Query(False),
+    db: Session = Depends(get_db)
+):
+    """Get a specific section by ID"""
+    try:
+        if include_hierarchy:
+            section = crud.section.get_with_forms(db=db, section_id=section_id)
+        else:
+            section = crud.section.get(db=db, id=section_id)
+        
+        if not section:
+            raise HTTPException(status_code=404, detail="Section not found")
+        
+        return schemas.ResponseWrapper(
+            message="Section retrieved successfully",
+            data=schemas.Section.model_validate(section)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/api/v1/admin/sections/{section_id}", response_model=schemas.ResponseWrapper)
+def update_section(
+    section_update: schemas.SectionUpdate,
+    section_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """Update a section"""
+    try:
+        section = crud.section.get(db=db, id=section_id)
+        if not section:
+            raise HTTPException(status_code=404, detail="Section not found")
+        
+        updated_section = crud.section.update(db=db, db_obj=section, obj_in=section_update)
+        return schemas.ResponseWrapper(
+            message="Section updated successfully",
+            data=schemas.Section.model_validate(updated_section)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/v1/admin/sections/{section_id}", response_model=schemas.ResponseWrapper)
+def delete_section(
+    section_id: int = Path(..., gt=0),
+    soft_delete: bool = Query(True),
+    db: Session = Depends(get_db)
+):
+    """Delete a section (soft delete by default)"""
+    try:
+        section = crud.section.get(db=db, id=section_id)
+        if not section:
+            raise HTTPException(status_code=404, detail="Section not found")
+        
+        if soft_delete:
+            crud.section.soft_delete(db=db, id=section_id)
+            message = "Section deactivated successfully"
+        else:
+            crud.section.delete(db=db, id=section_id)
+            message = "Section permanently deleted successfully"
+        
+        return schemas.ResponseWrapper(message=message)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 # Forms/Grades Endpoints
 @app.post("/api/v1/admin/forms-grades/", response_model=schemas.ResponseWrapper)
 def create_form_grade(
@@ -314,6 +434,7 @@ def create_form_grade(
 @app.get("/api/v1/admin/forms-grades/", response_model=schemas.ResponseWrapper)
 def list_forms_grades(
     school_level_id: Optional[int] = Query(None),
+    include_inactive: bool = Query(False, description="Include inactive forms/grades"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db)
@@ -321,7 +442,7 @@ def list_forms_grades(
     """List all forms/grades, optionally filtered by school level"""
     try:
         if school_level_id:
-            forms_grades = crud.form_grade.get_by_school_level(db=db, school_level_id=school_level_id)
+            forms_grades = crud.form_grade.get_by_school_level(db=db, school_level_id=school_level_id, include_inactive=include_inactive)
         else:
             forms_grades = crud.form_grade.get_multi(db=db, skip=skip, limit=limit)
         
@@ -346,6 +467,50 @@ def get_form_grade(
             message="Form grade retrieved successfully",
             data=schemas.FormGrade.model_validate(form_grade)
         )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.patch("/api/v1/admin/forms-grades/{form_grade_id}", response_model=schemas.ResponseWrapper)
+def update_form_grade(
+    form_grade_update: schemas.FormGradeUpdate,
+    form_grade_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """Update a form/grade (partial update)"""
+    try:
+        db_form_grade = crud.form_grade.get(db=db, id=form_grade_id)
+        if not db_form_grade:
+            raise HTTPException(status_code=404, detail="Form/Grade not found")
+        updated_form_grade = crud.form_grade.update(
+            db=db, db_obj=db_form_grade, obj_in=form_grade_update
+        )
+        return schemas.ResponseWrapper(
+            message="Form/Grade updated successfully",
+            data=schemas.FormGrade.model_validate(updated_form_grade)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/v1/admin/forms-grades/{form_grade_id}", response_model=schemas.ResponseWrapper)
+def delete_form_grade(
+    form_grade_id: int = Path(..., gt=0),
+    soft_delete: bool = Query(True),
+    db: Session = Depends(get_db)
+):
+    """Delete a form/grade (soft delete by default, permanent if soft_delete is False)"""
+    try:
+        form_grade = crud.form_grade.get(db=db, id=form_grade_id)
+        if not form_grade:
+            raise HTTPException(status_code=404, detail="Form/Grade not found")
+        if soft_delete:
+            crud.form_grade.soft_delete(db=db, id=form_grade_id)
+            message = "Form/Grade deactivated successfully"
+        else:
+            crud.form_grade.delete(db=db, id=form_grade_id)
+            message = "Form/Grade permanently deleted successfully"
+        return schemas.ResponseWrapper(message=message)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

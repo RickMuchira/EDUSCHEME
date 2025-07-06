@@ -1,12 +1,9 @@
-// File: frontend/src/app/admin/school-levels/page.tsx
-// Enhanced version with filter controls for active/inactive
-
 'use client'
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Plus, Edit, Trash2, Search, RefreshCw, Eye, Filter, Users, GraduationCap } from 'lucide-react'
+import { Plus, Edit, Trash2, Search, RefreshCw, Eye, Filter, School, GraduationCap } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,76 +11,102 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
-import { schoolLevelApi, type SchoolLevel } from '@/lib/api'
+import { sectionApi, type Section, type SchoolLevel } from '@/lib/api'
 import { DeleteDialog } from '@/components/ui/delete-dialog'
 
-export default function SchoolLevelsPage() {
+export default function SectionsPage() {
   const router = useRouter()
+  const [sections, setSections] = useState<Section[]>([])
   const [schoolLevels, setSchoolLevels] = useState<SchoolLevel[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const [filteredLevels, setFilteredLevels] = useState<SchoolLevel[]>([])
-  const [showInactive, setShowInactive] = useState(true) // Default to showing both
+  const [filteredSections, setFilteredSections] = useState<Section[]>([])
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
+  const [schoolLevelFilter, setSchoolLevelFilter] = useState<number | null>(null)
+  const [currentSchoolLevel, setCurrentSchoolLevel] = useState<SchoolLevel | null>(null)
   
   // Delete dialog state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deleteLoading, setDeleteLoading] = useState(false)
-  const [itemToDelete, setItemToDelete] = useState<SchoolLevel | null>(null)
+  const [itemToDelete, setItemToDelete] = useState<Section | null>(null)
 
-  // Load school levels
-  const loadSchoolLevels = async () => {
+  // Load sections and school levels
+  const loadData = async () => {
     try {
       setLoading(true)
-      // Always fetch all records (including inactive) from the API
-      const response = await schoolLevelApi.getAll(true) // true = include inactive
+      
+      // Get school level ID from URL params
+      const urlParams = new URLSearchParams(window.location.search)
+      const schoolLevelId = urlParams.get('school_level_id')
+      
+      // Load school levels for filtering
+      const schoolLevelsResponse = await fetch('http://localhost:8000/api/v1/admin/school-levels/?include_inactive=true')
+      if (schoolLevelsResponse.ok) {
+        const schoolLevelsData = await schoolLevelsResponse.json()
+        setSchoolLevels(schoolLevelsData.data || [])
+        
+        // Set current school level if specified
+        if (schoolLevelId) {
+          const schoolLevel = schoolLevelsData.data?.find((sl: SchoolLevel) => sl.id === parseInt(schoolLevelId))
+          setCurrentSchoolLevel(schoolLevel || null)
+          setSchoolLevelFilter(parseInt(schoolLevelId))
+        }
+      }
+      
+      // Load sections
+      const response = await sectionApi.getAll(schoolLevelId ? parseInt(schoolLevelId) : undefined, true)
       
       if (response.success && response.data) {
-        setSchoolLevels(response.data)
-        console.log('Loaded school levels:', response.data) // Debug log
+        setSections(response.data)
+        console.log('Loaded sections:', response.data)
       } else {
-        throw new Error(response.message || 'Failed to load school levels')
+        throw new Error(response.message || 'Failed to load sections')
       }
     } catch (error: any) {
-      console.error('Failed to load school levels:', error)
-      toast.error(error.message || 'Failed to load school levels')
+      console.error('Failed to load data:', error)
+      toast.error(error.message || 'Failed to load data')
     } finally {
       setLoading(false)
     }
   }
 
-  // Apply filters (search + status)
+  // Apply filters (search + status + school level)
   useEffect(() => {
-    let filtered = schoolLevels
+    let filtered = sections
 
     // Apply status filter
     if (statusFilter === 'active') {
-      filtered = filtered.filter(level => level.is_active)
+      filtered = filtered.filter(section => section.is_active)
     } else if (statusFilter === 'inactive') {
-      filtered = filtered.filter(level => !level.is_active)
+      filtered = filtered.filter(section => !section.is_active)
+    }
+
+    // Apply school level filter
+    if (schoolLevelFilter) {
+      filtered = filtered.filter(section => section.school_level_id === schoolLevelFilter)
     }
 
     // Apply search filter
     if (searchQuery.trim()) {
-      filtered = filtered.filter(level =>
-        level.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        level.code.toLowerCase().includes(searchQuery.toLowerCase())
+      filtered = filtered.filter(section =>
+        section.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (section.description && section.description.toLowerCase().includes(searchQuery.toLowerCase()))
       )
     }
 
-    setFilteredLevels(filtered)
-  }, [searchQuery, schoolLevels, statusFilter])
+    setFilteredSections(filtered)
+  }, [searchQuery, sections, statusFilter, schoolLevelFilter])
 
   // Load data on component mount
   useEffect(() => {
-    loadSchoolLevels()
+    loadData()
   }, [])
 
   // Auto-refresh when returning from create page
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        loadSchoolLevels()
+        loadData()
       }
     }
 
@@ -93,9 +116,9 @@ export default function SchoolLevelsPage() {
 
   // Handle delete
   const handleDelete = async (id: number, name: string) => {
-    const level = schoolLevels.find(l => l.id === id)
-    if (level) {
-      setItemToDelete(level)
+    const section = sections.find(s => s.id === id)
+    if (section) {
+      setItemToDelete(section)
       setDeleteDialogOpen(true)
     }
   }
@@ -106,19 +129,19 @@ export default function SchoolLevelsPage() {
 
     try {
       setDeleteLoading(true)
-      const response = await schoolLevelApi.delete(itemToDelete.id, hardDelete)
+      const response = await sectionApi.delete(itemToDelete.id, hardDelete)
       
       if (response.success) {
-        toast.success(`School level ${hardDelete ? 'permanently deleted' : 'deleted'} successfully`)
-        loadSchoolLevels() // Reload the list
+        toast.success(`Section ${hardDelete ? 'permanently deleted' : 'deleted'} successfully`)
+        loadData() // Reload the list
         setDeleteDialogOpen(false)
         setItemToDelete(null)
       } else {
-        throw new Error(response.message || 'Failed to delete school level')
+        throw new Error(response.message || 'Failed to delete section')
       }
     } catch (error: any) {
-      console.error('Failed to delete school level:', error)
-      toast.error(error.message || 'Failed to delete school level')
+      console.error('Failed to delete section:', error)
+      toast.error(error.message || 'Failed to delete section')
     } finally {
       setDeleteLoading(false)
     }
@@ -126,42 +149,55 @@ export default function SchoolLevelsPage() {
 
   // Handle view/edit
   const handleEdit = (id: number) => {
-    router.push(`/admin/school-levels/${id}/edit`)
+    router.push(`/admin/sections/${id}/edit`)
   }
 
   const handleView = (id: number) => {
-    router.push(`/admin/sections/?school_level_id=${id}`)
+    router.push(`/admin/sections/${id}`)
   }
 
-  const handleManageFormsGrades = (id: number) => {
-    router.push(`/admin/forms-grades/?school_level_id=${id}`)
+  const handleManageGrades = (id: number) => {
+    router.push(`/admin/forms-grades/?section_id=${id}`)
   }
 
   // Calculate stats
-  const activeCount = schoolLevels.filter(l => l.is_active).length
-  const inactiveCount = schoolLevels.filter(l => !l.is_active).length
+  const activeCount = sections.filter(s => s.is_active).length
+  const inactiveCount = sections.filter(s => !s.is_active).length
 
   return (
     <div className="container mx-auto py-6 px-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
         <div>
+          <div className="flex items-center space-x-2 mb-2">
+            {currentSchoolLevel && (
+              <Link href="/admin/school-levels">
+                <Button variant="outline" size="sm">
+                  <School className="h-4 w-4 mr-2" />
+                  {currentSchoolLevel.name}
+                </Button>
+              </Link>
+            )}
+          </div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-            School Levels
+            {currentSchoolLevel ? `${currentSchoolLevel.name} Sections` : 'All Sections'}
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Manage school levels (Primary, Secondary, High School, etc.)
+            {currentSchoolLevel 
+              ? `Manage sections within ${currentSchoolLevel.name}`
+              : 'Manage sections within school levels (Lower Primary, Upper Primary, etc.)'
+            }
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline" onClick={loadSchoolLevels} disabled={loading}>
+          <Button variant="outline" onClick={loadData} disabled={loading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Link href="/admin/school-levels/new">
+          <Link href={currentSchoolLevel ? `/admin/sections/new?school_level_id=${currentSchoolLevel.id}` : "/admin/sections/new"}>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
-              Add School Level
+              Add Section
             </Button>
           </Link>
         </div>
@@ -176,7 +212,7 @@ export default function SchoolLevelsPage() {
               <div className="relative flex-1 w-full">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                 <Input
-                  placeholder="Search school levels by name or code..."
+                  placeholder="Search sections by name, code, or description..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
@@ -189,7 +225,7 @@ export default function SchoolLevelsPage() {
               <div className="flex items-center space-x-6">
                 <div className="flex items-center space-x-2">
                   <Filter className="h-4 w-4 text-gray-500" />
-                  <Label className="text-sm font-medium">Status Filter:</Label>
+                  <Label className="text-sm font-medium">Filters:</Label>
                 </div>
                 <div className="flex items-center space-x-4">
                   <button
@@ -225,17 +261,34 @@ export default function SchoolLevelsPage() {
                 </div>
               </div>
 
+              {/* School Level Filter */}
+              <div className="flex items-center space-x-2">
+                <Label className="text-sm font-medium">School Level:</Label>
+                <select
+                  value={schoolLevelFilter || ''}
+                  onChange={(e) => setSchoolLevelFilter(e.target.value ? Number(e.target.value) : null)}
+                  className="px-3 py-1 border border-gray-300 rounded text-sm"
+                >
+                  <option value="">All School Levels</option>
+                  {schoolLevels.map(level => (
+                    <option key={level.id} value={level.id}>
+                      {level.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* Stats */}
               <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
-                <span>Total: {schoolLevels.length}</span>
+                <span>Total: {sections.length}</span>
                 <span>•</span>
                 <span className="text-green-600">Active: {activeCount}</span>
                 <span>•</span>
                 <span className="text-gray-500">Inactive: {inactiveCount}</span>
-                {filteredLevels.length !== schoolLevels.length && (
+                {filteredSections.length !== sections.length && (
                   <>
                     <span>•</span>
-                    <span className="text-blue-600">Showing: {filteredLevels.length}</span>
+                    <span className="text-blue-600">Showing: {filteredSections.length}</span>
                   </>
                 )}
               </div>
@@ -251,19 +304,19 @@ export default function SchoolLevelsPage() {
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
                 <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-gray-400" />
-                <p className="text-gray-500">Loading school levels...</p>
+                <p className="text-gray-500">Loading sections...</p>
               </div>
             </div>
           </CardContent>
         </Card>
-      ) : filteredLevels.length === 0 ? (
+      ) : filteredSections.length === 0 ? (
         <Card>
           <CardContent className="pt-6">
             <div className="text-center py-12">
-              {searchQuery || statusFilter !== 'all' ? (
+              {searchQuery || statusFilter !== 'all' || schoolLevelFilter ? (
                 <div>
                   <p className="text-gray-500 mb-4">
-                    No school levels found matching your filters
+                    No sections found matching your filters
                   </p>
                   <div className="space-x-2">
                     <Button variant="outline" onClick={() => setSearchQuery('')}>
@@ -272,17 +325,20 @@ export default function SchoolLevelsPage() {
                     <Button variant="outline" onClick={() => setStatusFilter('all')}>
                       Show All
                     </Button>
+                    <Button variant="outline" onClick={() => setSchoolLevelFilter(null)}>
+                      All School Levels
+                    </Button>
                   </div>
                 </div>
               ) : (
                 <div>
                   <p className="text-gray-500 mb-4">
-                    No school levels found. Create your first school level to get started.
+                    No sections found. Create your first section to get started.
                   </p>
-                  <Link href="/admin/school-levels/new">
+                  <Link href="/admin/sections/new">
                     <Button>
                       <Plus className="mr-2 h-4 w-4" />
-                      Add School Level
+                      Add Section
                     </Button>
                   </Link>
                 </div>
@@ -292,11 +348,11 @@ export default function SchoolLevelsPage() {
         </Card>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {filteredLevels.map((level) => (
+          {filteredSections.map((section) => (
             <Card 
-              key={level.id} 
+              key={section.id} 
               className={`hover:shadow-lg transition-all duration-200 border-l-4 ${
-                level.is_active 
+                section.is_active 
                   ? 'border-l-blue-500' 
                   : 'border-l-gray-400 opacity-75'
               }`}
@@ -304,58 +360,71 @@ export default function SchoolLevelsPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className={`text-lg font-semibold ${
-                    !level.is_active ? 'text-gray-600' : ''
+                    !section.is_active ? 'text-gray-600' : ''
                   }`}>
-                    {level.name}
+                    {section.name}
                   </CardTitle>
-                  <Badge variant={level.is_active ? 'default' : 'secondary'}>
-                    {level.is_active ? 'Active' : 'Inactive'}
+                  <Badge variant={section.is_active ? 'default' : 'secondary'}>
+                    {section.is_active ? 'Active' : 'Inactive'}
                   </Badge>
                 </div>
                 <CardDescription className="flex items-center justify-between">
-                  <span>Code: <span className={`font-mono font-medium ${
-                    level.is_active ? 'text-blue-600' : 'text-gray-500'
-                  }`}>{level.code}</span></span>
-                  <span className="text-xs text-gray-500">ID: {level.id}</span>
+                  <span className="text-xs text-gray-500">ID: {section.id}</span>
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
+                  {/* Description */}
+                  {section.description && (
+                    <div className="text-sm text-gray-600">
+                      {section.description}
+                    </div>
+                  )}
+                  
+                  {/* School Level */}
+                  <div className="flex items-center space-x-2 text-sm">
+                    <School className="h-4 w-4 text-gray-400" />
+                    <span className="text-gray-500">School Level:</span>
+                    <span className="font-medium">
+                      {section.school_level?.name || `ID: ${section.school_level_id}`}
+                    </span>
+                  </div>
+
                   {/* Details */}
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <span className="text-gray-500">Display Order:</span>
-                      <div className="font-medium">{level.display_order}</div>
+                      <div className="font-medium">{section.display_order}</div>
                     </div>
                     <div>
-                      <span className="text-gray-500">School ID:</span>
-                      <div className="font-medium">{level.school_id}</div>
+                      <span className="text-gray-500">School Level ID:</span>
+                      <div className="font-medium">{section.school_level_id}</div>
                     </div>
                   </div>
                   
                   {/* Timestamps */}
                   <div className="pt-2 border-t border-gray-100">
                     <div className="grid grid-cols-1 gap-1 text-xs text-gray-500">
-                      <div>Created: {new Date(level.created_at).toLocaleDateString()}</div>
-                      <div>Updated: {new Date(level.updated_at).toLocaleDateString()}</div>
+                      <div>Created: {new Date(section.created_at).toLocaleDateString()}</div>
+                      <div>Updated: {new Date(section.updated_at).toLocaleDateString()}</div>
                     </div>
                   </div>
 
                   {/* Actions */}
                   <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                    <Button variant="outline" size="sm" onClick={() => handleManageFormsGrades(level.id)}>
+                    <Button variant="outline" size="sm" onClick={() => handleManageGrades(section.id)}>
                       <GraduationCap className="h-4 w-4 mr-1" />
-                      Manage {level.grade_type === 'form' ? 'Forms' : 'Grades'}
+                      Manage Grades
                     </Button>
                     <div className="flex items-center space-x-2">
-                      <Button variant="outline" size="sm" onClick={() => handleEdit(level.id)}>
+                      <Button variant="outline" size="sm" onClick={() => handleEdit(section.id)}>
                         <Edit className="h-4 w-4 mr-1" />
                         Edit
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleDelete(level.id, level.name)}
+                        onClick={() => handleDelete(section.id, section.name)}
                         className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
                       >
                         <Trash2 className="h-4 w-4 mr-1" />
@@ -371,19 +440,21 @@ export default function SchoolLevelsPage() {
       )}
 
       {/* Summary Footer */}
-      {!loading && filteredLevels.length > 0 && (
+      {!loading && filteredSections.length > 0 && (
         <Card className="mt-6">
           <CardContent className="pt-6">
             <div className="flex flex-col sm:flex-row items-center justify-between text-sm text-gray-600 dark:text-gray-400 gap-4">
               <div className="flex items-center space-x-4">
                 <span>
-                  Showing {filteredLevels.length} of {schoolLevels.length} school levels
+                  Showing {filteredSections.length} of {sections.length} sections
                 </span>
-                {(searchQuery || statusFilter !== 'all') && (
+                {(searchQuery || statusFilter !== 'all' || schoolLevelFilter) && (
                   <Badge variant="outline">
                     {searchQuery && `Search: "${searchQuery}"`}
-                    {searchQuery && statusFilter !== 'all' && ' • '}
+                    {searchQuery && (statusFilter !== 'all' || schoolLevelFilter) && ' • '}
                     {statusFilter !== 'all' && `Status: ${statusFilter}`}
+                    {statusFilter !== 'all' && schoolLevelFilter && ' • '}
+                    {schoolLevelFilter && `School Level: ${schoolLevels.find(l => l.id === schoolLevelFilter)?.name || schoolLevelFilter}`}
                   </Badge>
                 )}
               </div>
@@ -406,9 +477,9 @@ export default function SchoolLevelsPage() {
         <DeleteDialog
           open={deleteDialogOpen}
           onOpenChange={setDeleteDialogOpen}
-          title="Delete School Level"
+          title="Delete Section"
           itemName={itemToDelete.name}
-          itemType="school level"
+          itemType="section"
           isActive={itemToDelete.is_active}
           onConfirm={handleDeleteConfirm}
           loading={deleteLoading}
@@ -417,4 +488,4 @@ export default function SchoolLevelsPage() {
       )}
     </div>
   )
-}
+} 

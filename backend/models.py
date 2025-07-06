@@ -50,13 +50,31 @@ class SchoolLevel(Base):
     description = Column(Text)
     display_order = Column(Integer, default=0)
     school_id = Column(Integer, ForeignKey("schools.id"), nullable=False)
+    grade_type = Column(String(20), default="grade")  # "form" or "grade"
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     
     # Relationships
     school = relationship("School", back_populates="school_levels")
+    sections = relationship("Section", back_populates="school_level", cascade="all, delete-orphan")
     forms_grades = relationship("FormGrade", back_populates="school_level", cascade="all, delete-orphan")
+
+class Section(Base):
+    __tablename__ = "sections"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)  # Lower Primary, Upper Primary, etc.
+    description = Column(Text)
+    display_order = Column(Integer, default=0)
+    school_level_id = Column(Integer, ForeignKey("school_levels.id"), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    school_level = relationship("SchoolLevel", back_populates="sections")
+    # Note: forms_grades relationship removed since FormGrade now references SchoolLevel directly
 
 class FormGrade(Base):
     __tablename__ = "forms_grades"
@@ -64,6 +82,7 @@ class FormGrade(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)  # Form 1, Grade 1, etc.
     code = Column(String(20), nullable=False)  # F1, G1, etc.
+    description = Column(Text)
     display_order = Column(Integer, default=0)
     school_level_id = Column(Integer, ForeignKey("school_levels.id"), nullable=False)
     is_active = Column(Boolean, default=True)
