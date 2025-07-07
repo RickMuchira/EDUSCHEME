@@ -180,16 +180,15 @@ class FormGradeCRUD(BaseCRUD):
             )
         ).first()
 
-
-
 class TermCRUD(BaseCRUD):
     def __init__(self):
         super().__init__(models.Term)
 
-    def get_by_form_grade(self, db: Session, form_grade_id: int):
-        return db.query(self.model).filter(
-            and_(self.model.form_grade_id == form_grade_id, self.model.is_active == True)
-        ).order_by(self.model.display_order).all()
+    def get_by_form_grade(self, db: Session, form_grade_id: int, include_inactive: bool = False):
+        query = db.query(self.model).filter(self.model.form_grade_id == form_grade_id)
+        if not include_inactive:
+            query = query.filter(self.model.is_active == True)
+        return query.order_by(self.model.display_order).all()
 
     def get_current_terms(self, db: Session):
         from datetime import datetime

@@ -533,6 +533,7 @@ def create_term(
 @app.get("/api/v1/admin/terms/", response_model=schemas.ResponseWrapper)
 def list_terms(
     form_grade_id: Optional[int] = Query(None),
+    include_inactive: bool = Query(False, description="Include inactive terms"),
     current_only: bool = Query(False),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
@@ -541,7 +542,7 @@ def list_terms(
     """List all terms, with various filters"""
     try:
         if form_grade_id:
-            terms = crud.term.get_by_form_grade(db=db, form_grade_id=form_grade_id)
+            terms = crud.term.get_by_form_grade(db=db, form_grade_id=form_grade_id, include_inactive=include_inactive)
         elif current_only:
             terms = crud.term.get_current_terms(db=db)
         else:
@@ -568,6 +569,29 @@ def get_term(
             message="Term retrieved successfully",
             data=schemas.Term.model_validate(term)
         )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/v1/admin/terms/{term_id}", response_model=schemas.ResponseWrapper)
+def delete_term(
+    term_id: int = Path(..., gt=0),
+    soft_delete: bool = Query(True),
+    db: Session = Depends(get_db)
+):
+    """Delete a term (soft delete by default, permanent if soft_delete is False)"""
+    try:
+        term = crud.term.get(db=db, id=term_id)
+        if not term:
+            raise HTTPException(status_code=404, detail="Term not found")
+        if soft_delete:
+            crud.term.soft_delete(db=db, id=term_id)
+            message = "Term deactivated successfully"
+        else:
+            crud.term.delete(db=db, id=term_id)
+            message = "Term permanently deleted successfully"
+        return schemas.ResponseWrapper(message=message)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

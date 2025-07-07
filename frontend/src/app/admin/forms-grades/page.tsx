@@ -413,6 +413,11 @@ export default function FormsGradesPage() {
                       View
                     </Button>
                     <div className="flex items-center space-x-2">
+                      <Link href={`/admin/terms?form_grade_id=${formGrade.id}`} passHref legacyBehavior>
+                        <Button variant="outline" size="sm" as="a">
+                          Manage Terms
+                        </Button>
+                      </Link>
                       <Button variant="outline" size="sm" onClick={() => handleEdit(formGrade.id)}>
                         <Edit className="h-4 w-4 mr-1" />
                         Edit
