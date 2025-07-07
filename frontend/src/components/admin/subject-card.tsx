@@ -43,7 +43,6 @@ import {
 interface Subject {
   id: number
   name: string
-  code: string
   description?: string
   color: string
   icon: string
@@ -162,17 +161,6 @@ export function SubjectCard({
                   <CardTitle className="text-lg font-semibold text-gray-900 dark:text-white">
                     {subject.name}
                   </CardTitle>
-                  <Badge 
-                    variant="secondary" 
-                    className="text-xs"
-                    style={{ 
-                      backgroundColor: `${subject.color}20`,
-                      color: subject.color,
-                      borderColor: `${subject.color}40`
-                    }}
-                  >
-                    {subject.code}
-                  </Badge>
                 </div>
                 {!subject.is_active && (
                   <Badge variant="destructive" className="text-xs">

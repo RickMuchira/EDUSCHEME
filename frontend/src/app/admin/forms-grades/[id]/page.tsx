@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { formGradeApi, type FormGrade } from '@/lib/api'
+import { Checkbox } from '@/components/ui/checkbox'
+import { subjectApi } from '@/lib/api'
 
 export default function GradeDetailPage() {
   const router = useRouter()
@@ -16,6 +18,10 @@ export default function GradeDetailPage() {
   const id = params?.id ? Number(params.id) : null
   const [grade, setGrade] = useState<FormGrade | null>(null)
   const [loading, setLoading] = useState(true)
+  const [subjects, setSubjects] = useState<any[]>([])
+  const [assignedSubjectIds, setAssignedSubjectIds] = useState<number[]>([])
+  const [subjectsLoading, setSubjectsLoading] = useState(true)
+  const [savingSubjects, setSavingSubjects] = useState(false)
 
   useEffect(() => {
     const fetchGrade = async () => {
@@ -31,6 +37,37 @@ export default function GradeDetailPage() {
     }
     fetchGrade()
   }, [id])
+
+  // Fetch all subjects in the pool
+  useEffect(() => {
+    const fetchSubjects = async () => {
+      setSubjectsLoading(true)
+      const response = await subjectApi.getAll()
+      if (response.success && response.data) {
+        setSubjects(response.data)
+        // TODO: fetch assigned subjects for this grade/form and setAssignedSubjectIds
+      }
+      setSubjectsLoading(false)
+    }
+    fetchSubjects()
+  }, [])
+
+  // Handler for toggling subject assignment
+  const handleToggleSubject = (subjectId: number) => {
+    setAssignedSubjectIds((prev) =>
+      prev.includes(subjectId)
+        ? prev.filter((id) => id !== subjectId)
+        : [...prev, subjectId]
+    )
+  }
+
+  // Handler for saving assignments (placeholder)
+  const handleSaveSubjects = async () => {
+    setSavingSubjects(true)
+    // TODO: Call backend to save assignedSubjectIds for this grade/form
+    toast.success('Subject assignments saved (placeholder)')
+    setSavingSubjects(false)
+  }
 
   if (loading) {
     return (
@@ -97,6 +134,40 @@ export default function GradeDetailPage() {
             <div>
               <span className="font-semibold">ID:</span> {grade.id}
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Subject Assignment Section */}
+      <Card className="w-full mt-8">
+        <CardHeader>
+          <CardTitle className="text-lg">Assign Subjects to this {grade.school_level?.grade_type === 'form' ? 'Form' : 'Grade'}</CardTitle>
+          <CardDescription>Select which subjects are available for this {grade.school_level?.grade_type === 'form' ? 'form' : 'grade'}.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {subjectsLoading ? (
+            <div className="text-gray-500">Loading subjects...</div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {subjects.map((subject) => (
+                <label key={subject.id} className="flex items-center space-x-3 p-2 border rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
+                  <Checkbox
+                    checked={assignedSubjectIds.includes(subject.id)}
+                    onCheckedChange={() => handleToggleSubject(subject.id)}
+                  />
+                  <span className="font-medium" style={{ color: subject.color }}>
+                    <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ backgroundColor: subject.color }} />
+                    {subject.name}
+                  </span>
+                  <span className="ml-auto text-xs text-gray-400">{subject.description}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end mt-6">
+            <Button onClick={handleSaveSubjects} disabled={savingSubjects}>
+              {savingSubjects ? 'Saving...' : 'Save Assignments'}
+            </Button>
           </div>
         </CardContent>
       </Card>

@@ -43,7 +43,6 @@ import {
 
 const subjectSchema = z.object({
   name: z.string().min(1, 'Subject name is required').max(150, 'Name must be less than 150 characters'),
-  code: z.string().min(1, 'Subject code is required').max(20, 'Code must be less than 20 characters'),
   description: z.string().max(500, 'Description must be less than 500 characters').optional(),
   color: z.string().regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, 'Must be a valid hex color'),
   icon: z.string().min(1, 'Please select an icon'),
@@ -115,7 +114,6 @@ export function SubjectForm({
     resolver: zodResolver(subjectSchema),
     defaultValues: {
       name: initialData?.name || '',
-      code: initialData?.code || '',
       description: initialData?.description || '',
       color: selectedColor,
       icon: selectedIcon,
@@ -196,9 +194,6 @@ export function SubjectForm({
                   <div className="font-medium text-gray-900 dark:text-white">
                     {form.watch('name') || 'Subject Name'}
                   </div>
-                  <Badge variant="secondary" className="text-xs mt-1">
-                    {form.watch('code') || 'CODE'}
-                  </Badge>
                   <div className="text-xs text-gray-500 mt-1">
                     Animation: {selectedAnimation}
                   </div>
@@ -231,28 +226,6 @@ export function SubjectForm({
                         className="focus:border-blue-500"
                       />
                     </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="code"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Subject Code</FormLabel>
-                    <FormControl>
-                      <Input 
-                        placeholder="e.g., MATH" 
-                        {...field}
-                        className="focus:border-blue-500"
-                        onChange={(e) => field.onChange(e.target.value.toUpperCase())}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Short code for the subject (will be converted to uppercase)
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

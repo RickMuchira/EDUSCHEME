@@ -30,7 +30,6 @@ import { debounce } from '@/lib/utils'
 interface Subject {
   id: number
   name: string
-  code: string
   description?: string
   color: string
   icon: string
@@ -181,7 +180,6 @@ export default function SubjectsPage() {
       ...subject,
       id: 0,
       name: `${subject.name} (Copy)`,
-      code: `${subject.code}_COPY`,
     })
     setShowCreateDialog(true)
   }
@@ -189,7 +187,6 @@ export default function SubjectsPage() {
   const filteredSubjects = subjects.filter(subject => {
     const matchesSearch = !searchQuery || 
       subject.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      subject.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
       subject.description?.toLowerCase().includes(searchQuery.toLowerCase())
     
     const matchesTerm = selectedTerm === 'all' || subject.term_id.toString() === selectedTerm
@@ -299,7 +296,7 @@ export default function SubjectsPage() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <Input
-                  placeholder="Search subjects by name, code, or description..."
+                  placeholder="Search subjects by name or description..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
@@ -315,7 +312,7 @@ export default function SubjectsPage() {
                 <SelectItem value="all">All Terms</SelectItem>
                 {terms.map((term) => (
                   <SelectItem key={term.id} value={term.id.toString()}>
-                    {term.name} ({term.code})
+                    {term.name}
                   </SelectItem>
                 ))}
               </SelectContent>
