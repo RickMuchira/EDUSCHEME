@@ -1,302 +1,347 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { toast } from 'sonner'
-import { Pencil, Trash2, Check, X } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { DeleteDialog } from '@/components/ui/delete-dialog'
+import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { 
+  Plus, 
+  Edit, 
+  Trash2, 
+  Calendar,
+  GraduationCap,
+  ArrowRight,
+  BookOpen,
+  Users,
+  Clock,
+  Target,
+  ArrowLeft
+} from 'lucide-react'
+import Link from 'next/link'
+import { termApi } from '@/lib/api'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+interface FormGrade {
+  id: number
+  name: string
+  code: string
+  school_level: {
+    id: number
+    name: string
+  }
+}
 
 interface Term {
   id: number
   name: string
   code: string
+  start_date?: string
+  end_date?: string
+  display_order: number
   form_grade_id: number
+  is_active: boolean
   created_at: string
   updated_at: string
-  is_active: boolean
+  form_grade?: FormGrade
+  subjects_count?: number
 }
 
-export default function TermsPage() {
+const TermsManagePage = () => {
   const searchParams = useSearchParams()
   const formGradeId = searchParams.get('form_grade_id')
+  
   const [terms, setTerms] = useState<Term[]>([])
-  const [loading, setLoading] = useState(false)
-  const [numTerms, setNumTerms] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [activeTab, setActiveTab] = useState<string | null>(null)
-  const [editingTermId, setEditingTermId] = useState<number | null>(null)
-  const [editName, setEditName] = useState('')
-  const [editCode, setEditCode] = useState('')
-  const [editLoading, setEditLoading] = useState(false)
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [termToDelete, setTermToDelete] = useState<Term | null>(null)
-  const [deleteLoading, setDeleteLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active')
+  const [formGrade, setFormGrade] = useState<FormGrade | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState('active')
 
-  // Fetch terms for the grade
+  useEffect(() => {
+    if (formGradeId) {
+      fetchTerms()
+    }
+  }, [formGradeId])
+
   const fetchTerms = async () => {
     if (!formGradeId) return
-    setLoading(true)
+    
     try {
-      let url = `${API_BASE_URL}/api/v1/admin/terms?form_grade_id=${formGradeId}`
-      // Always include_inactive for 'all' and 'inactive' to get both active and inactive terms
-      if (statusFilter === 'all' || statusFilter === 'inactive') {
-        url += `&include_inactive=true`
+      const response = await termApi.getByFormGrade(parseInt(formGradeId))
+      setTerms(response.data || [])
+      
+      // Set form grade info from the first term
+      if (response.data && response.data.length > 0) {
+        setFormGrade(response.data[0].form_grade)
       }
-      const res = await fetch(url)
-      const data = await res.json()
-      let terms = data.data?.filter((t: Term) => t.form_grade_id === Number(formGradeId)) || []
-      if (statusFilter === 'inactive') {
-        terms = terms.filter((t: Term) => !t.is_active)
-      } else if (statusFilter === 'active') {
-        terms = terms.filter((t: Term) => t.is_active)
-      }
-      setTerms(terms)
-      if (terms.length > 0) {
-        setActiveTab(terms[0].id.toString())
-      }
-    } catch (err) {
-      toast.error('Failed to load terms')
+    } catch (error) {
+      console.error('Error fetching terms:', error)
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => {
-    fetchTerms()
-    // eslint-disable-next-line
-  }, [formGradeId, statusFilter])
-
-  // Handle create terms
-  const handleCreateTerms = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!formGradeId || !numTerms || isNaN(Number(numTerms)) || Number(numTerms) < 1) {
-      toast.error('Enter a valid number of terms')
-      return
-    }
-    setCreating(true)
-    try {
-      for (let i = 1; i <= Number(numTerms); i++) {
-        await fetch(`${API_BASE_URL}/api/v1/admin/terms/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: `Term ${i}`,
-            code: `T${i}`,
-            form_grade_id: Number(formGradeId),
-            is_active: true
-          })
-        })
-      }
-      toast.success('Terms created successfully')
-      setNumTerms('')
-      fetchTerms()
-    } catch (err) {
-      toast.error('Failed to create terms')
-    } finally {
-      setCreating(false)
-    }
-  }
-
-  // Edit handlers
-  const startEdit = (term: Term) => {
-    setEditingTermId(term.id)
-    setEditName(term.name)
-    setEditCode(term.code)
-  }
-  const cancelEdit = () => {
-    setEditingTermId(null)
-    setEditName('')
-    setEditCode('')
-  }
-  const saveEdit = async (term: Term) => {
-    setEditLoading(true)
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/admin/terms/${term.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: editName, code: editCode })
-      })
-      if (res.ok) {
-        toast.success('Term updated')
-        setEditingTermId(null)
+  const handleDeleteTerm = async (id: number) => {
+    if (confirm('Are you sure you want to delete this term?')) {
+      try {
+        await termApi.delete(id)
         fetchTerms()
-      } else {
-        toast.error('Failed to update term')
+      } catch (error) {
+        console.error('Error deleting term:', error)
       }
-    } catch {
-      toast.error('Failed to update term')
-    } finally {
-      setEditLoading(false)
     }
   }
 
-  // Delete handlers
-  const confirmDelete = (term: Term) => {
-    setTermToDelete(term)
-    setDeleteDialogOpen(true)
-  }
-  const handleDeleteConfirm = async (hardDelete: boolean) => {
-    if (!termToDelete) return
-    try {
-      setDeleteLoading(true)
-      const res = await fetch(`${API_BASE_URL}/api/v1/admin/terms/${termToDelete.id}?soft_delete=${hardDelete ? 'false' : 'true'}`, { method: 'DELETE' })
-      if (res.ok) {
-        toast.success(hardDelete ? 'Term permanently deleted' : 'Term deactivated')
-        setDeleteDialogOpen(false)
-        setTermToDelete(null)
-        fetchTerms()
-      } else {
-        toast.error('Failed to delete term')
-      }
-    } catch {
-      toast.error('Failed to delete term')
-    } finally {
-      setDeleteLoading(false)
+  const getFilteredTerms = () => {
+    if (activeTab === 'active') {
+      return terms.filter(term => term.is_active)
+    } else if (activeTab === 'inactive') {
+      return terms.filter(term => !term.is_active)
     }
+    return terms
   }
+
+  // Clickable Term Row that matches your current design
+  const TermRow = ({ term }: { term: Term }) => (
+    <div className="border rounded-lg p-4 bg-white hover:bg-blue-50 transition-all duration-200">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <div className="w-10 h-10 rounded-lg bg-blue-500 flex items-center justify-center text-white text-sm font-bold">
+            {term.code}
+          </div>
+          <div>
+            <h3 className="font-semibold text-gray-900">
+              {term.name}
+            </h3>
+            <p className="text-sm text-gray-500">
+              Created: {new Date(term.created_at).toLocaleDateString()}
+              {term.updated_at !== term.created_at && (
+                <span className="ml-2">
+                  Updated: {new Date(term.updated_at).toLocaleDateString()}
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex items-center space-x-2">
+          {/* Action Buttons */}
+          <Link href={`/admin/subjects/new?term_id=${term.id}`}>
+            <Button size="sm" className="bg-green-600 hover:bg-green-700">
+              <Plus className="w-4 h-4 mr-1" />
+              Add Subjects
+            </Button>
+          </Link>
+          
+          <Link href={`/admin/subjects?term_id=${term.id}`}>
+            <Button variant="outline" size="sm">
+              <BookOpen className="w-4 h-4 mr-1" />
+              View Subjects
+            </Button>
+          </Link>
+          
+          <Button variant="outline" size="sm">
+            <Edit className="w-4 h-4" />
+          </Button>
+          
+          <Button 
+            variant="destructive" 
+            size="sm"
+            onClick={() => handleDeleteTerm(term.id)}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
 
   if (!formGradeId) {
     return (
-      <Card className="max-w-xl mx-auto mt-10">
-        <CardHeader>
-          <CardTitle>Select a Grade</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p>Please select a grade to manage its terms.</p>
-        </CardContent>
-      </Card>
+      <div className="max-w-4xl mx-auto space-y-6 p-6">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center py-12">
+              <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No Form/Grade Selected</h3>
+              <p className="text-gray-600 mb-4">
+                Please select a form/grade to manage its terms
+              </p>
+              <Link href="/admin/forms-grades">
+                <Button>
+                  <GraduationCap className="w-4 h-4 mr-2" />
+                  Select Form/Grade
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     )
   }
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    )
+  }
+
+  const filteredTerms = getFilteredTerms()
+
   return (
-    <div className="container mx-auto py-6 px-4">
-      <Card className="max-w-xl mx-auto">
+    <div className="max-w-6xl mx-auto space-y-6 p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <Link href="/admin/forms-grades">
+            <Button variant="outline" size="sm">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Manage Terms</h1>
+            <div className="flex items-center space-x-2 text-gray-600">
+              <span>for</span>
+              <Badge variant="outline" className="text-sm">
+                {formGrade?.name || `Grade ID: ${formGradeId}`} - {formGrade?.school_level?.name || 'School Level'}
+              </Badge>
+            </div>
+          </div>
+        </div>
+        <Link href={`/admin/terms/new?form_grade_id=${formGradeId}`}>
+          <Button className="bg-blue-600 hover:bg-blue-700">
+            <Plus className="w-4 h-4 mr-2" />
+            Create Terms
+          </Button>
+        </Link>
+      </div>
+
+      {/* Instruction Alert */}
+      <Alert className="border-green-200 bg-green-50">
+        <Target className="h-4 w-4 text-green-600" />
+        <AlertDescription className="text-green-800">
+          <strong>Next Step:</strong> Click "Add Subjects" on any term below to start adding subjects to it.
+        </AlertDescription>
+      </Alert>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-600">{terms.length}</div>
+              <div className="text-sm text-gray-600">Number of terms</div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600">
+                {terms.filter(t => t.is_active).length}
+              </div>
+              <div className="text-sm text-gray-600">Active</div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-orange-600">
+                {terms.filter(t => !t.is_active).length}
+              </div>
+              <div className="text-sm text-gray-600">Inactive</div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-purple-600">
+                {terms.reduce((sum, t) => sum + (t.subjects_count || 0), 0)}
+              </div>
+              <div className="text-sm text-gray-600">Total Subjects</div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="active">Active</TabsTrigger>
+          <TabsTrigger value="inactive">Inactive</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value={activeTab} className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Existing Terms</CardTitle>
+              <CardDescription>
+                Click "Add Subjects" to start creating subjects for each term
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {filteredTerms.length === 0 ? (
+                <div className="text-center py-12">
+                  <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Terms Found</h3>
+                  <p className="text-gray-600 mb-4">
+                    Create your first term to start building the curriculum
+                  </p>
+                  <Link href={`/admin/terms/new?form_grade_id=${formGradeId}`}>
+                    <Button>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create First Term
+                    </Button>
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredTerms.map((term) => (
+                    <TermRow key={term.id} term={term} />
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Quick Actions Footer */}
+      <Card>
         <CardHeader>
-          <CardTitle>Manage Terms</CardTitle>
-          <CardDescription>for Grade ID: {formGradeId}</CardDescription>
+          <CardTitle className="text-lg">Quick Actions</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleCreateTerms} className="mb-6 flex items-center space-x-2">
-            <Input
-              type="number"
-              min={1}
-              placeholder="Number of terms to create"
-              value={numTerms}
-              onChange={e => setNumTerms(e.target.value)}
-              className="w-40"
-              disabled={creating}
-            />
-            <Button type="submit" disabled={creating || !numTerms}>
-              {creating ? 'Creating...' : 'Create Terms'}
-            </Button>
-          </form>
-          <div className="flex items-center space-x-2 mb-4">
-            <Button
-              variant={statusFilter === 'all' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setStatusFilter('all')}
-            >
-              All
-            </Button>
-            <Button
-              variant={statusFilter === 'active' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setStatusFilter('active')}
-            >
-              Active
-            </Button>
-            <Button
-              variant={statusFilter === 'inactive' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setStatusFilter('inactive')}
-            >
-              Inactive
-            </Button>
-          </div>
-          <div>
-            <h3 className="font-semibold mb-2">Existing Terms</h3>
-            {loading ? (
-              <p>Loading terms...</p>
-            ) : terms.length === 0 ? (
-              <p className="text-gray-500">No terms found for this grade.</p>
-            ) : (
-              <Tabs value={activeTab || undefined} onValueChange={setActiveTab} className="w-full">
-                <TabsList className="mb-4">
-                  {terms.map(term => (
-                    <TabsTrigger key={term.id} value={term.id.toString()}>{term.name}</TabsTrigger>
-                  ))}
-                </TabsList>
-                {terms.map(term => (
-                  <TabsContent key={term.id} value={term.id.toString()} className="border rounded p-4 relative">
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="font-medium">{term.name} ({term.code})</div>
-                      <div className="flex space-x-2">
-                        <Button variant="ghost" size="icon" onClick={() => startEdit(term)}><Pencil className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" onClick={() => confirmDelete(term)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
-                      </div>
-                    </div>
-                    {editingTermId === term.id ? (
-                      <form onSubmit={e => { e.preventDefault(); saveEdit(term) }} className="flex items-center space-x-2 mb-2">
-                        <Input value={editName} onChange={e => setEditName(e.target.value)} className="w-32" disabled={editLoading} />
-                        <Input value={editCode} onChange={e => setEditCode(e.target.value)} className="w-20" disabled={editLoading} />
-                        <Button type="submit" size="icon" disabled={editLoading}><Check className="h-4 w-4" /></Button>
-                        <Button type="button" size="icon" variant="ghost" onClick={cancelEdit}><X className="h-4 w-4" /></Button>
-                      </form>
-                    ) : null}
-                    {!term.is_active && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="ml-2 text-green-600 border-green-300"
-                        onClick={async () => {
-                          try {
-                            const res = await fetch(`${API_BASE_URL}/api/v1/admin/terms/${term.id}`, {
-                              method: 'PUT',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ is_active: true })
-                            })
-                            if (res.ok) {
-                              toast.success('Term reactivated')
-                              fetchTerms()
-                            } else {
-                              toast.error('Failed to reactivate term')
-                            }
-                          } catch {
-                            toast.error('Failed to reactivate term')
-                          }
-                        }}
-                      >
-                        Reactivate
-                      </Button>
-                    )}
-                    <div className="text-xs text-gray-500">Created: {new Date(term.created_at).toLocaleDateString()}</div>
-                    <div className="text-xs text-gray-500">Updated: {new Date(term.updated_at).toLocaleDateString()}</div>
-                  </TabsContent>
-                ))}
-              </Tabs>
-            )}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Link href={`/admin/terms/new?form_grade_id=${formGradeId}`}>
+              <Button variant="outline" className="w-full justify-start">
+                <Plus className="w-4 h-4 mr-2" />
+                Add New Term
+              </Button>
+            </Link>
+            <Link href={`/admin/subjects?form_grade_id=${formGradeId}`}>
+              <Button variant="outline" className="w-full justify-start">
+                <BookOpen className="w-4 h-4 mr-2" />
+                View All Subjects
+              </Button>
+            </Link>
+            <Link href="/admin/forms-grades">
+              <Button variant="outline" className="w-full justify-start">
+                <GraduationCap className="w-4 h-4 mr-2" />
+                Back to Forms/Grades
+              </Button>
+            </Link>
           </div>
         </CardContent>
       </Card>
-      <DeleteDialog
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-        title="Delete Term"
-        itemName={termToDelete?.name || ''}
-        itemType="term"
-        isActive={!!termToDelete?.is_active}
-        onConfirm={handleDeleteConfirm}
-        loading={deleteLoading}
-        showSoftDeleteOption={true}
-      />
     </div>
   )
-} 
+}
+
+export default TermsManagePage
