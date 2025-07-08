@@ -21,13 +21,16 @@ import {
   ArrowLeft,
   Loader2,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  AlertTriangle,
+  Eye,
+  EyeOff
 } from 'lucide-react'
 import Link from 'next/link'
 import { termApi, formGradeApi, type Term, type FormGrade } from '@/lib/api'
 import { toast } from 'sonner'
-import { UrlDebug } from '@/components/debug/UrlDebug'
 import { safeRoutes, isValidId } from '@/lib/safe-links'
+import { EnhancedDeleteDialog } from '@/components/ui/enhanced-delete-dialog'
 
 // Helper function to validate form grade ID
 const validateFormGradeId = (param: string | null): { id: number | null; isValid: boolean; error?: string } => {
@@ -63,6 +66,11 @@ const TermsManagePage = () => {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('active')
   const [error, setError] = useState<string | null>(null)
+
+  // Enhanced delete dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [termToDelete, setTermToDelete] = useState<Term | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
 
   // Debug logging
   console.log('Terms page - URL params:', {
@@ -116,23 +124,47 @@ const TermsManagePage = () => {
     }
   }
 
-  const handleDeleteTerm = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this term?')) {
-      return
-    }
+  const handleDeleteTerm = async (permanent: boolean = false) => {
+    if (!termToDelete) return
 
     try {
-      const response = await termApi.delete(id, true) // Soft delete
+      setDeleteLoading(true)
+      
+      console.log(`${permanent ? 'Hard' : 'Soft'} deleting term:`, termToDelete.id)
+      
+      const response = await termApi.delete(termToDelete.id, !permanent) // Note: API expects softDelete boolean
       
       if (response.success) {
-        toast.success('Term deleted successfully')
-        fetchTerms() // Refresh the list
+        const deleteType = permanent ? 'permanently deleted' : 'deactivated'
+        toast.success(`Term "${termToDelete.name}" ${deleteType} successfully`)
+        
+        // Close dialog and reset state
+        setDeleteDialogOpen(false)
+        setTermToDelete(null)
+        
+        // Refresh the list to show updated status
+        fetchTerms()
       } else {
-        throw new Error(response.message || 'Failed to delete term')
+        throw new Error(response.message || `Failed to ${permanent ? 'delete' : 'deactivate'} term`)
       }
     } catch (error: any) {
       console.error('Error deleting term:', error)
-      toast.error(error.message || 'Failed to delete term')
+      const action = permanent ? 'delete' : 'deactivate'
+      toast.error(error.message || `Failed to ${action} term`)
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
+
+  const openDeleteDialog = (term: Term) => {
+    setTermToDelete(term)
+    setDeleteDialogOpen(true)
+  }
+
+  const closeDeleteDialog = () => {
+    if (!deleteLoading) {
+      setDeleteDialogOpen(false)
+      setTermToDelete(null)
     }
   }
 
@@ -146,6 +178,7 @@ const TermsManagePage = () => {
     
     try {
       const url = safeRoutes.subjectsForTerm(term.id)
+      console.log('Navigating to subjects with URL:', url)
       router.push(url)
     } catch (error: any) {
       console.error('Navigation error:', error)
@@ -170,18 +203,29 @@ const TermsManagePage = () => {
   }
 
   const handleToggleTermStatus = async (id: number, currentStatus: boolean) => {
+    if (!isValidId(id)) {
+      toast.error('Invalid term ID')
+      return
+    }
+    
     try {
-      const response = await termApi.update(id, { is_active: !currentStatus })
+      const newStatus = !currentStatus
+      const action = newStatus ? 'activate' : 'deactivate'
+      
+      console.log(`${action.charAt(0).toUpperCase() + action.slice(1)}ing term:`, id)
+      
+      const response = await termApi.update(id, { is_active: newStatus })
       
       if (response.success) {
-        toast.success(`Term ${!currentStatus ? 'activated' : 'deactivated'} successfully`)
+        toast.success(`Term ${action}d successfully`)
         fetchTerms() // Refresh the list
       } else {
-        throw new Error(response.message || 'Failed to update term status')
+        throw new Error(response.message || `Failed to ${action} term`)
       }
     } catch (error: any) {
       console.error('Error updating term status:', error)
-      toast.error(error.message || 'Failed to update term status')
+      const action = !currentStatus ? 'activate' : 'deactivate'
+      toast.error(error.message || `Failed to ${action} term`)
     }
   }
 
@@ -232,9 +276,6 @@ const TermsManagePage = () => {
 
   return (
     <div className="container mx-auto py-6 px-4">
-      {/* Debug component - only shows in development */}
-      <UrlDebug />
-      
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-4">
@@ -403,14 +444,25 @@ const TermsManagePage = () => {
                               size="sm"
                               onClick={() => handleToggleTermStatus(term.id, term.is_active)}
                               disabled={!isValidId(term.id)}
+                              className={term.is_active ? "text-orange-600 hover:text-orange-700" : "text-green-600 hover:text-green-700"}
                             >
-                              {term.is_active ? 'Deactivate' : 'Activate'}
+                              {term.is_active ? (
+                                <>
+                                  <EyeOff className="mr-1 h-4 w-4" />
+                                  Deactivate
+                                </>
+                              ) : (
+                                <>
+                                  <Eye className="mr-1 h-4 w-4" />
+                                  Activate
+                                </>
+                              )}
                             </Button>
                             
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleDeleteTerm(term.id)}
+                              onClick={() => openDeleteDialog(term)}
                               className="text-red-600 hover:text-red-700"
                               disabled={!isValidId(term.id)}
                             >

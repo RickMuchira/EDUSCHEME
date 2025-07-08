@@ -1,390 +1,611 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { 
-  BookOpen, 
   Plus, 
-  Search, 
+  Edit, 
+  Trash2, 
+  BookOpen,
+  ArrowLeft,
+  Loader2,
+  RefreshCw,
+  AlertCircle,
   Calendar,
   GraduationCap,
-  Eye,
-  Edit,
-  Trash2,
+  Target,
   Palette,
-  Clock,
-  Users,
-  AlertCircle
+  Eye,
+  EyeOff
 } from 'lucide-react'
 import Link from 'next/link'
-import { termApi, subjectApi } from '@/lib/api'
+import { subjectApi, termApi, type Subject, type Term } from '@/lib/api'
+import { toast } from 'sonner'
+import { safeRoutes, isValidId, toValidId } from '@/lib/safe-links'
+import { EnhancedDeleteDialog } from '@/components/ui/enhanced-delete-dialog'
 
-interface Term {
-  id: number
-  name: string
-  code: string
-  start_date: string
-  end_date: string
-  form_grade_id: number
-  form_grade: {
-    id: number
-    name: string
-    code: string
-    school_level: {
-      id: number
-      name: string
-    }
-  }
-  is_active: boolean
-}
-
-interface Subject {
-  id: number
-  name: string
-  code: string
-  description: string
-  color: string
-  icon: string
-  animation_type: string
-  display_order: number
-  term_id: number
-  term: Term
-  is_active: boolean
-  created_at: string
-}
-
-const SubjectsPage = () => {
-  const [terms, setTerms] = useState<Term[]>([])
+const SubjectsManagePage = () => {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const termIdParam = searchParams.get('term_id')
+  
+  // Validate term_id parameter
+  const termId = toValidId(termIdParam)
+  const isValidTermId = isValidId(termId)
+  
   const [subjects, setSubjects] = useState<Subject[]>([])
-  const [selectedTermId, setSelectedTermId] = useState<number | null>(null)
-  const [filteredSubjects, setFilteredSubjects] = useState<Subject[]>([])
+  const [availableTerms, setAvailableTerms] = useState<Term[]>([])
+  const [currentTerm, setCurrentTerm] = useState<Term | null>(null)
   const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
+  const [activeTab, setActiveTab] = useState('active')
+  const [error, setError] = useState<string | null>(null)
+  const [selectedTermId, setSelectedTermId] = useState<number | null>(termId)
 
-  useEffect(() => {
-    fetchTerms()
-    fetchSubjects()
-  }, [])
+  // Enhanced delete dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [subjectToDelete, setSubjectToDelete] = useState<Subject | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
 
-  useEffect(() => {
-    filterSubjects()
-  }, [subjects, selectedTermId, searchTerm])
+  console.log('Subjects page - URL validation:', {
+    termIdParam,
+    termId,
+    isValidTermId,
+    selectedTermId
+  })
 
-  const fetchTerms = async () => {
+  // Load available terms for dropdown
+  const loadAvailableTerms = async () => {
     try {
-      const response = await termApi.getAll()
-      setTerms(response.data || [])
-    } catch (error) {
-      console.error('Error fetching terms:', error)
+      const response = await termApi.getAll({ include_inactive: false })
+      if (response.success && response.data) {
+        setAvailableTerms(response.data)
+        console.log('Loaded available terms:', response.data)
+      }
+    } catch (error: any) {
+      console.error('Failed to load terms:', error)
     }
   }
 
-  const fetchSubjects = async () => {
+  // Load subjects for selected term
+  const loadSubjects = async (termIdToLoad?: number) => {
+    const targetTermId = termIdToLoad || selectedTermId
+    
+    if (!targetTermId || !isValidId(targetTermId)) {
+      setSubjects([])
+      setCurrentTerm(null)
+      setLoading(false)
+      return
+    }
+
     try {
-      const response = await subjectApi.getAll()
-      setSubjects(response.data || [])
-    } catch (error) {
-      console.error('Error fetching subjects:', error)
+      setLoading(true)
+      setError(null)
+      
+      console.log('Loading subjects for term ID:', targetTermId)
+      
+      // Load term details and subjects in parallel
+      const [termResponse, subjectsResponse] = await Promise.all([
+        termApi.getById(targetTermId),
+        subjectApi.getByTerm(targetTermId, true) // Include inactive subjects
+      ])
+      
+      if (termResponse.success && termResponse.data) {
+        setCurrentTerm(termResponse.data)
+      }
+      
+      if (subjectsResponse.success && subjectsResponse.data) {
+        setSubjects(subjectsResponse.data)
+        console.log('Loaded subjects:', subjectsResponse.data)
+      } else {
+        throw new Error(subjectsResponse.message || 'Failed to load subjects')
+      }
+    } catch (error: any) {
+      console.error('Error loading subjects:', error)
+      setError(error.message || 'Failed to load subjects')
+      toast.error('Failed to load subjects')
     } finally {
       setLoading(false)
     }
   }
 
-  const filterSubjects = () => {
-    let filtered = subjects
+  // Handle term selection from dropdown
+  const handleTermSelect = (termIdString: string) => {
+    const newTermId = parseInt(termIdString, 10)
+    if (isValidId(newTermId)) {
+      setSelectedTermId(newTermId)
+      // Update URL to reflect selected term
+      const newUrl = safeRoutes.subjectsForTerm(newTermId)
+      router.push(newUrl)
+    }
+  }
 
-    // Filter by selected term
+  // Load data on component mount and when term changes
+  useEffect(() => {
+    loadAvailableTerms()
+  }, [])
+
+  useEffect(() => {
     if (selectedTermId) {
-      filtered = filtered.filter(subject => subject.term_id === selectedTermId)
+      loadSubjects(selectedTermId)
+    } else {
+      setLoading(false)
     }
+  }, [selectedTermId])
 
-    // Filter by search term
-    if (searchTerm) {
-      filtered = filtered.filter(subject => 
-        subject.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        subject.code.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    }
+  // Handle delete subject
+  const handleDeleteSubject = async (permanent: boolean = false) => {
+    if (!subjectToDelete) return
 
-    setFilteredSubjects(filtered)
-  }
-
-  const handleDeleteSubject = async (id: number) => {
-    if (confirm('Are you sure you want to delete this subject?')) {
-      try {
-        await subjectApi.delete(id)
-        fetchSubjects()
-      } catch (error) {
-        console.error('Error deleting subject:', error)
+    try {
+      setDeleteLoading(true)
+      
+      console.log(`${permanent ? 'Hard' : 'Soft'} deleting subject:`, subjectToDelete.id)
+      
+      const response = await subjectApi.delete(subjectToDelete.id, !permanent)
+      
+      if (response.success) {
+        const deleteType = permanent ? 'permanently deleted' : 'deactivated'
+        toast.success(`Subject "${subjectToDelete.name}" ${deleteType} successfully`)
+        
+        setDeleteDialogOpen(false)
+        setSubjectToDelete(null)
+        
+        // Refresh the list
+        loadSubjects()
+      } else {
+        throw new Error(response.message || `Failed to ${permanent ? 'delete' : 'deactivate'} subject`)
       }
+    } catch (error: any) {
+      console.error('Error deleting subject:', error)
+      const action = permanent ? 'delete' : 'deactivate'
+      toast.error(error.message || `Failed to ${action} subject`)
+    } finally {
+      setDeleteLoading(false)
     }
   }
 
-  const getSelectedTerm = () => {
-    return terms.find(term => term.id === selectedTermId)
+  const openDeleteDialog = (subject: Subject) => {
+    setSubjectToDelete(subject)
+    setDeleteDialogOpen(true)
   }
 
-  const SubjectCard = ({ subject }: { subject: Subject }) => (
-    <Card className="group hover:shadow-lg transition-all duration-300 border-l-4" 
-          style={{ borderLeftColor: subject.color }}>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 rounded-lg flex items-center justify-center text-white text-xl font-bold transition-all duration-300 group-hover:scale-110"
-                 style={{ backgroundColor: subject.color }}>
-              {subject.code.slice(0, 2)}
-            </div>
-            <div>
-              <CardTitle className="text-lg">{subject.name}</CardTitle>
-              <CardDescription className="text-sm">
-                Code: {subject.code}
-              </CardDescription>
-            </div>
-          </div>
-          <Badge variant={subject.is_active ? "default" : "secondary"}>
-            {subject.is_active ? 'Active' : 'Inactive'}
-          </Badge>
-        </div>
+  const closeDeleteDialog = () => {
+    if (!deleteLoading) {
+      setDeleteDialogOpen(false)
+      setSubjectToDelete(null)
+    }
+  }
+
+  // Handle subject status toggle
+  const handleToggleSubjectStatus = async (id: number, currentStatus: boolean) => {
+    if (!isValidId(id)) {
+      toast.error('Invalid subject ID')
+      return
+    }
+    
+    try {
+      const newStatus = !currentStatus
+      const action = newStatus ? 'activate' : 'deactivate'
+      
+      const response = await subjectApi.update(id, { is_active: newStatus })
+      
+      if (response.success) {
+        toast.success(`Subject ${action}d successfully`)
+        loadSubjects()
+      } else {
+        throw new Error(response.message || `Failed to ${action} subject`)
+      }
+    } catch (error: any) {
+      console.error('Error updating subject status:', error)
+      const action = !currentStatus ? 'activate' : 'deactivate'
+      toast.error(error.message || `Failed to ${action} subject`)
+    }
+  }
+
+  // Filter subjects based on active tab
+  const filteredSubjects = subjects.filter(subject => {
+    if (activeTab === 'active') return subject.is_active
+    if (activeTab === 'inactive') return !subject.is_active
+    return true // 'all' tab
+  })
+
+  // Term selection UI
+  const TermSelector = () => (
+    <Card className="mb-6">
+      <CardHeader>
+        <CardTitle className="flex items-center">
+          <Calendar className="mr-2 h-5 w-5" />
+          Select Term
+        </CardTitle>
+        <CardDescription>
+          Choose a term to view and manage its subjects
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-3">
-          <p className="text-sm text-gray-600 line-clamp-2">
-            {subject.description || 'No description available'}
-          </p>
-          
-          <div className="flex items-center space-x-4 text-sm text-gray-500">
-            <div className="flex items-center space-x-1">
-              <Calendar className="w-4 h-4" />
-              <span>{subject.term?.name}</span>
-            </div>
-            <div className="flex items-center space-x-1">
-              <GraduationCap className="w-4 h-4" />
-              <span>{subject.term?.form_grade?.name}</span>
-            </div>
-            <div className="flex items-center space-x-1">
-              <Palette className="w-4 h-4" />
-              <span className="capitalize">{subject.animation_type}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between pt-3 border-t">
-            <div className="flex space-x-2">
-              <Link href={`/admin/subjects/${subject.id}`}>
-                <Button variant="outline" size="sm">
-                  <Eye className="w-4 h-4 mr-1" />
-                  View
-                </Button>
-              </Link>
-              <Link href={`/admin/subjects/${subject.id}/edit`}>
-                <Button variant="outline" size="sm">
-                  <Edit className="w-4 h-4 mr-1" />
-                  Edit
-                </Button>
-              </Link>
-            </div>
-            <Button 
-              variant="destructive" 
-              size="sm"
-              onClick={() => handleDeleteSubject(subject.id)}
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
-          </div>
-        </div>
+        <Select 
+          value={selectedTermId?.toString() || ""} 
+          onValueChange={handleTermSelect}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="Select a term..." />
+          </SelectTrigger>
+          <SelectContent>
+            {availableTerms.map((term) => (
+              <SelectItem key={term.id} value={term.id.toString()}>
+                <div className="flex items-center space-x-2">
+                  <Badge variant="secondary" className="text-xs">
+                    {term.code}
+                  </Badge>
+                  <span>{term.name}</span>
+                  <span className="text-gray-500">
+                    • {term.form_grade?.name}
+                  </span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </CardContent>
     </Card>
   )
 
-  if (loading) {
+  // Show term selector if no term selected
+  if (!selectedTermId || !isValidTermId) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      </div>
-    )
-  }
-
-  const selectedTerm = getSelectedTerm()
-
-  return (
-    <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Subjects</h1>
-          <p className="text-gray-600">Create and manage subjects for specific terms</p>
-        </div>
-        <Link href="/admin/subjects/new">
-          <Button className="bg-blue-600 hover:bg-blue-700">
-            <Plus className="w-4 h-4 mr-2" />
+      <div className="container mx-auto py-6 px-4">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-4">
+            <Link href="/admin/terms">
+              <Button variant="ghost" size="icon">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            </Link>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                Subjects
+              </h1>
+              <p className="text-gray-600 dark:text-gray-400">
+                Create and manage subjects for specific terms
+              </p>
+            </div>
+          </div>
+          <Button disabled>
+            <Plus className="mr-2 h-4 w-4" />
             Add Subject
           </Button>
-        </Link>
-      </div>
+        </div>
 
-      {/* Term Selection */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Calendar className="w-5 h-5" />
-            <span>Select Term</span>
-          </CardTitle>
-          <CardDescription>
-            Choose a term to view and manage its subjects
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Select value={selectedTermId?.toString() || ''} onValueChange={(value) => setSelectedTermId(value ? parseInt(value) : null)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a term..." />
-              </SelectTrigger>
-              <SelectContent>
-                {terms.map((term) => (
-                  <SelectItem key={term.id} value={term.id.toString()}>
-                    <div className="flex flex-col">
-                      <span className="font-medium">{term.name} ({term.code})</span>
-                      <span className="text-sm text-gray-500">
-                        {term.form_grade?.name} - {term.form_grade?.school_level?.name}
-                      </span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <TermSelector />
 
-            {selectedTerm && (
-              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <h3 className="font-semibold text-blue-900">{selectedTerm.name}</h3>
-                <p className="text-sm text-blue-700">
-                  {selectedTerm.form_grade?.name} - {selectedTerm.form_grade?.school_level?.name}
-                </p>
-                <p className="text-xs text-blue-600 mt-1">
-                  {filteredSubjects.length} subjects in this term
-                </p>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Search and Filters */}
-      {selectedTermId && (
+        {/* Empty state */}
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <Input
-                    placeholder="Search subjects in this term..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
-              <Link href={`/admin/subjects/new?term_id=${selectedTermId}`}>
-                <Button>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Subject to {selectedTerm?.name}
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Content */}
-      {!selectedTermId ? (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-center py-12">
-              <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Select a Term First</h3>
-              <p className="text-gray-600 mb-4">
+          <CardContent className="py-12">
+            <div className="text-center">
+              <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                Select a Term First
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400">
                 Choose a term from the dropdown above to view and manage its subjects
               </p>
             </div>
           </CardContent>
         </Card>
-      ) : filteredSubjects.length === 0 ? (
-        <Card>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="container mx-auto py-6 px-4">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+            <p className="text-gray-600">Loading subjects...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="container mx-auto py-6 px-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center space-x-4">
+          <Link href="/admin/terms">
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Subjects for {currentTerm?.name || `Term ${selectedTermId}`}
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400">
+              Manage subjects and their content
+              {currentTerm?.form_grade && ` • ${currentTerm.form_grade.name}`}
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex items-center space-x-2">
+          <Button variant="outline" size="icon" onClick={() => loadSubjects()}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Link href={safeRoutes.newSubjectForTerm(selectedTermId)}>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Subject
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      {/* Term Selector (when term is selected) */}
+      <TermSelector />
+
+      {/* Current Term Info */}
+      {currentTerm && (
+        <Card className="mb-6">
           <CardContent className="pt-6">
-            <div className="text-center py-12">
-              <BookOpen className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No Subjects Found</h3>
-              <p className="text-gray-600 mb-4">
-                {searchTerm 
-                  ? `No subjects match "${searchTerm}" in ${selectedTerm?.name}`
-                  : `${selectedTerm?.name} doesn't have any subjects yet`
-                }
-              </p>
-              <Link href={`/admin/subjects/new?term_id=${selectedTermId}`}>
-                <Button>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add First Subject
-                </Button>
-              </Link>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="bg-blue-100 dark:bg-blue-900 p-2 rounded">
+                  <span className="text-blue-600 dark:text-blue-400 font-semibold">
+                    {currentTerm.code}
+                  </span>
+                </div>
+                <div>
+                  <h3 className="font-semibold">{currentTerm.name}</h3>
+                  {currentTerm.form_grade && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      {currentTerm.form_grade.name} • Order: {currentTerm.display_order}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Badge variant={currentTerm.is_active ? "default" : "secondary"}>
+                {currentTerm.is_active ? 'Active' : 'Inactive'}
+              </Badge>
             </div>
           </CardContent>
         </Card>
-      ) : (
-        <div className="space-y-4">
-          {/* Term Context Header */}
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              Showing {filteredSubjects.length} subjects for <strong>{selectedTerm?.name}</strong> 
-              ({selectedTerm?.form_grade?.name} - {selectedTerm?.form_grade?.school_level?.name})
-            </AlertDescription>
-          </Alert>
+      )}
 
-          {/* Subjects Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredSubjects.map((subject) => (
-              <SubjectCard key={subject.id} subject={subject} />
-            ))}
-          </div>
+      {/* Subjects List */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center">
+              <BookOpen className="mr-2 h-5 w-5" />
+              Subjects
+            </span>
+            <Badge variant="outline">
+              {subjects.length} total
+            </Badge>
+          </CardTitle>
+          <CardDescription>
+            Manage subjects for this term
+          </CardDescription>
+        </CardHeader>
 
-          {/* Term Summary */}
-          <Card>
-            <CardContent className="pt-6">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-600">{filteredSubjects.length}</div>
-                  <div className="text-sm text-gray-600">Total Subjects</div>
+        <CardContent>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid w-full grid-cols-3 mb-6">
+              <TabsTrigger value="active">Active ({filteredSubjects.filter(s => s.is_active).length})</TabsTrigger>
+              <TabsTrigger value="inactive">Inactive ({filteredSubjects.filter(s => !s.is_active).length})</TabsTrigger>
+              <TabsTrigger value="all">All ({subjects.length})</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value={activeTab}>
+              {filteredSubjects.length === 0 ? (
+                <div className="text-center py-8">
+                  <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                    No {activeTab === 'all' ? '' : activeTab} subjects found
+                  </h3>
+                  <p className="text-gray-600 dark:text-gray-400 mb-4">
+                    {activeTab === 'active' 
+                      ? 'There are no active subjects for this term yet.'
+                      : activeTab === 'inactive'
+                      ? 'There are no inactive subjects for this term.'
+                      : 'This term has no subjects yet.'}
+                  </p>
+                  <Link href={safeRoutes.newSubjectForTerm(selectedTermId)}>
+                    <Button>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Create First Subject
+                    </Button>
+                  </Link>
                 </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600">
-                    {filteredSubjects.filter(s => s.is_active).length}
-                  </div>
-                  <div className="text-sm text-gray-600">Active</div>
+              ) : (
+                <div className="space-y-4">
+                  {filteredSubjects
+                    .sort((a, b) => a.display_order - b.display_order)
+                    .map((subject) => (
+                    <Card key={subject.id} className="border hover:border-blue-200 transition-colors">
+                      <CardContent className="p-6">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4">
+                            <div 
+                              className="p-3 rounded-lg"
+                              style={{ 
+                                backgroundColor: subject.color ? `${subject.color}20` : '#f3f4f6',
+                                border: `2px solid ${subject.color || '#e5e7eb'}`
+                              }}
+                            >
+                              <BookOpen 
+                                className="h-6 w-6"
+                                style={{ color: subject.color || '#6b7280' }}
+                              />
+                            </div>
+                            
+                            <div>
+                              <div className="flex items-center space-x-2 mb-1">
+                                <h3 className="font-semibold text-gray-900 dark:text-white">
+                                  {subject.name}
+                                </h3>
+                                <Badge variant="secondary" className="text-xs">
+                                  {subject.code}
+                                </Badge>
+                                <Badge 
+                                  variant={subject.is_active ? "default" : "secondary"}
+                                  className={subject.is_active ? "bg-green-100 text-green-800" : ""}
+                                >
+                                  {subject.is_active ? 'Active' : 'Inactive'}
+                                </Badge>
+                              </div>
+                              
+                              <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
+                                <span className="flex items-center">
+                                  <Target className="mr-1 h-4 w-4" />
+                                  Order: {subject.display_order}
+                                </span>
+                                {subject.color && (
+                                  <span className="flex items-center">
+                                    <Palette className="mr-1 h-4 w-4" />
+                                    Color: {subject.color}
+                                  </span>
+                                )}
+                                {subject.topics_count !== undefined && (
+                                  <span className="flex items-center">
+                                    <BookOpen className="mr-1 h-4 w-4" />
+                                    {subject.topics_count} topics
+                                  </span>
+                                )}
+                              </div>
+                              
+                              {subject.description && (
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                                  {subject.description}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {/* Navigate to topics */}}
+                              disabled={!isValidId(subject.id)}
+                            >
+                              <BookOpen className="mr-2 h-4 w-4" />
+                              Topics
+                            </Button>
+                            
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {/* Navigate to edit */}}
+                              disabled={!isValidId(subject.id)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleToggleSubjectStatus(subject.id, subject.is_active)}
+                              disabled={!isValidId(subject.id)}
+                              className={subject.is_active ? "text-orange-600 hover:text-orange-700" : "text-green-600 hover:text-green-700"}
+                            >
+                              {subject.is_active ? (
+                                <>
+                                  <EyeOff className="mr-1 h-4 w-4" />
+                                  Deactivate
+                                </>
+                              ) : (
+                                <>
+                                  <Eye className="mr-1 h-4 w-4" />
+                                  Activate
+                                </>
+                              )}
+                            </Button>
+                            
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openDeleteDialog(subject)}
+                              className="text-red-600 hover:text-red-700"
+                              disabled={!isValidId(subject.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-orange-600">
-                    {filteredSubjects.filter(s => !s.is_active).length}
-                  </div>
-                  <div className="text-sm text-gray-600">Inactive</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-purple-600">
-                    {new Set(filteredSubjects.map(s => s.color)).size}
-                  </div>
-                  <div className="text-sm text-gray-600">Unique Colors</div>
-                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+
+      {/* Enhanced Delete Dialog */}
+      {subjectToDelete && (
+        <EnhancedDeleteDialog
+          open={deleteDialogOpen}
+          onOpenChange={closeDeleteDialog}
+          onConfirm={handleDeleteSubject}
+          loading={deleteLoading}
+          title="Delete Subject"
+          itemName={subjectToDelete.name}
+          itemType="subject"
+          isActive={subjectToDelete.is_active}
+          showSoftDeleteOption={true}
+          showHardDeleteOption={true}
+        >
+          <div className="space-y-2">
+            <h5 className="font-medium text-gray-900">Subject Details:</h5>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-gray-600">Code:</span>
+                <span className="ml-2 font-mono">{subjectToDelete.code}</span>
               </div>
-            </CardContent>
-          </Card>
-        </div>
+              <div>
+                <span className="text-gray-600">Order:</span>
+                <span className="ml-2">{subjectToDelete.display_order}</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Status:</span>
+                <span className={`ml-2 ${subjectToDelete.is_active ? 'text-green-600' : 'text-gray-500'}`}>
+                  {subjectToDelete.is_active ? 'Active' : 'Inactive'}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-600">Topics:</span>
+                <span className="ml-2">{subjectToDelete.topics_count || 0}</span>
+              </div>
+            </div>
+            
+            {subjectToDelete.topics_count && subjectToDelete.topics_count > 0 && (
+              <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg mt-3">
+                <div className="flex items-center space-x-2">
+                  <AlertCircle className="h-4 w-4 text-yellow-600" />
+                  <span className="text-sm font-medium text-yellow-900">Contains Topics</span>
+                </div>
+                <p className="text-sm text-yellow-700 mt-1">
+                  This subject contains {subjectToDelete.topics_count} topic{subjectToDelete.topics_count !== 1 ? 's' : ''}. 
+                  Deleting this subject may affect those topics.
+                </p>
+              </div>
+            )}
+          </div>
+        </EnhancedDeleteDialog>
       )}
     </div>
   )
 }
 
-export default SubjectsPage
+export default SubjectsManagePage

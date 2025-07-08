@@ -17,7 +17,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { toast } from 'sonner'
 import { termApi, formGradeApi, type TermCreate, type FormGrade } from '@/lib/api'
 import { isValidId, toValidId, safeRoutes } from '@/lib/safe-links'
-import { UrlDebug } from '@/components/debug/UrlDebug'
 
 // Validation schema
 const termSchema = z.object({
@@ -168,8 +167,6 @@ export default function CreateTermPage() {
   if (error || !isValidFormGradeId) {
     return (
       <div className="container mx-auto py-6 px-4">
-        <UrlDebug />
-        
         <Alert className="max-w-2xl mx-auto">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
@@ -194,8 +191,6 @@ export default function CreateTermPage() {
 
   return (
     <div className="container mx-auto py-6 px-4">
-      <UrlDebug />
-      
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-4">

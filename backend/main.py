@@ -522,12 +522,29 @@ def create_term(
 ):
     """Create a new term"""
     try:
+        print(f"Creating term with data: {term}")
+        
+        # Check if code is unique within form/grade
+        existing = crud.term.get_by_code(
+            db=db, code=term.code, form_grade_id=term.form_grade_id
+        )
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Term with code '{term.code}' already exists in this form/grade"
+            )
+        
         db_term = crud.term.create(db=db, obj_in=term)
+        print(f"Successfully created term: {db_term}")
+        
         return schemas.ResponseWrapper(
             message="Term created successfully",
             data=schemas.Term.model_validate(db_term)
         )
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Error creating term: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/api/v1/admin/terms/", response_model=schemas.ResponseWrapper)
@@ -541,12 +558,19 @@ def list_terms(
 ):
     """List all terms, with various filters"""
     try:
+        print(f"Listing terms with filters: form_grade_id={form_grade_id}, include_inactive={include_inactive}")
+        
         if form_grade_id:
             terms = crud.term.get_by_form_grade(db=db, form_grade_id=form_grade_id, include_inactive=include_inactive)
         elif current_only:
             terms = crud.term.get_current_terms(db=db)
         else:
-            terms = crud.term.get_multi(db=db, skip=skip, limit=limit)
+            if include_inactive:
+                terms = crud.term.get_multi(db=db, skip=skip, limit=limit)
+            else:
+                terms = crud.term.get_multi(db=db, skip=skip, limit=limit, is_active=True)
+        
+        print(f"Found {len(terms)} terms")
         
         return schemas.ResponseWrapper(
             message="Terms retrieved successfully",
@@ -554,6 +578,7 @@ def list_terms(
             total=len(terms)
         )
     except Exception as e:
+        print(f"Error listing terms: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/api/v1/admin/terms/{term_id}", response_model=schemas.ResponseWrapper)
@@ -561,15 +586,63 @@ def get_term(
     term_id: int = Path(..., gt=0),
     db: Session = Depends(get_db)
 ):
+    """Get a single term by ID"""
     try:
+        print(f"Getting term with ID: {term_id}")
+        
         term = crud.term.get(db=db, id=term_id)
         if not term:
             raise HTTPException(status_code=404, detail="Term not found")
+            
         return schemas.ResponseWrapper(
             message="Term retrieved successfully",
             data=schemas.Term.model_validate(term)
         )
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Error getting term: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/api/v1/admin/terms/{term_id}", response_model=schemas.ResponseWrapper)
+def update_term(
+    term_update: schemas.TermUpdate,
+    term_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """Update a term"""
+    try:
+        print(f"Updating term {term_id} with data: {term_update}")
+        
+        db_term = crud.term.get(db=db, id=term_id)
+        if not db_term:
+            raise HTTPException(status_code=404, detail="Term not found")
+        
+        # If updating code, check uniqueness within form/grade
+        if hasattr(term_update, 'code') and term_update.code and term_update.code != db_term.code:
+            existing = crud.term.get_by_code(
+                db=db, code=term_update.code, form_grade_id=db_term.form_grade_id
+            )
+            if existing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Term with code '{term_update.code}' already exists in this form/grade"
+                )
+        
+        updated_term = crud.term.update(
+            db=db, db_obj=db_term, obj_in=term_update
+        )
+        
+        print(f"Successfully updated term: {updated_term}")
+        
+        return schemas.ResponseWrapper(
+            message="Term updated successfully",
+            data=schemas.Term.model_validate(updated_term)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error updating term: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.delete("/api/v1/admin/terms/{term_id}", response_model=schemas.ResponseWrapper)
@@ -580,19 +653,32 @@ def delete_term(
 ):
     """Delete a term (soft delete by default, permanent if soft_delete is False)"""
     try:
+        print(f"Deleting term {term_id}, soft_delete={soft_delete}")
+        
         term = crud.term.get(db=db, id=term_id)
         if not term:
             raise HTTPException(status_code=404, detail="Term not found")
+            
         if soft_delete:
-            crud.term.soft_delete(db=db, id=term_id)
+            # Soft delete - mark as inactive
+            updated_term = crud.term.soft_delete(db=db, id=term_id)
+            if not updated_term:
+                raise HTTPException(status_code=404, detail="Term not found for soft delete")
             message = "Term deactivated successfully"
+            print(f"Soft deleted term: {updated_term}")
         else:
-            crud.term.delete(db=db, id=term_id)
+            # Hard delete - permanently remove
+            deleted_term = crud.term.delete(db=db, id=term_id)
+            if not deleted_term:
+                raise HTTPException(status_code=404, detail="Term not found for deletion")
             message = "Term permanently deleted successfully"
+            print(f"Hard deleted term: {deleted_term}")
+            
         return schemas.ResponseWrapper(message=message)
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Error deleting term: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 # Subjects Endpoints
@@ -626,6 +712,7 @@ def create_subject(
 @app.get("/api/v1/admin/subjects/", response_model=schemas.ResponseWrapper)
 def list_subjects(
     term_id: Optional[int] = Query(None),
+    include_inactive: bool = Query(False, description="Include inactive subjects"),
     search: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
@@ -633,12 +720,27 @@ def list_subjects(
 ):
     """List all subjects with search functionality"""
     try:
+        print(f"Listing subjects with filters: term_id={term_id}, include_inactive={include_inactive}")
+        
         if term_id:
-            subjects = crud.subject.get_by_term(db=db, term_id=term_id)
+            # Get subjects for specific term
+            if include_inactive:
+                # Include both active and inactive subjects
+                subjects = db.query(models.Subject).filter(
+                    models.Subject.term_id == term_id
+                ).order_by(models.Subject.display_order).all()
+            else:
+                # Only active subjects
+                subjects = crud.subject.get_by_term(db=db, term_id=term_id)
         elif search:
             subjects = crud.subject.search_subjects(db=db, query=search)
         else:
-            subjects = crud.subject.get_multi(db=db, skip=skip, limit=limit)
+            if include_inactive:
+                subjects = crud.subject.get_multi(db=db, skip=skip, limit=limit)
+            else:
+                subjects = crud.subject.get_multi(db=db, skip=skip, limit=limit, is_active=True)
+        
+        print(f"Found {len(subjects)} subjects")
         
         return schemas.ResponseWrapper(
             message="Subjects retrieved successfully",
@@ -646,27 +748,71 @@ def list_subjects(
             total=len(subjects)
         )
     except Exception as e:
+        print(f"Error listing subjects: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/api/v1/admin/subjects/{subject_id}", response_model=schemas.ResponseWrapper)
-def get_subject(
+@app.put("/api/v1/admin/subjects/{subject_id}", response_model=schemas.ResponseWrapper)
+def update_subject(
+    subject_update: schemas.SubjectUpdate,
     subject_id: int = Path(..., gt=0),
-    include_topics: bool = Query(False),
     db: Session = Depends(get_db)
 ):
-    """Get a specific subject by ID"""
+    """Update a subject"""
     try:
-        subject = crud.subject.get(db=db, id=subject_id)
-        if not subject:
+        print(f"Updating subject {subject_id} with data: {subject_update}")
+        
+        db_subject = crud.subject.get(db=db, id=subject_id)
+        if not db_subject:
             raise HTTPException(status_code=404, detail="Subject not found")
         
+        updated_subject = crud.subject.update(
+            db=db, db_obj=db_subject, obj_in=subject_update
+        )
+        
+        print(f"Successfully updated subject: {updated_subject}")
+        
         return schemas.ResponseWrapper(
-            message="Subject retrieved successfully",
-            data=schemas.Subject.model_validate(subject)
+            message="Subject updated successfully",
+            data=schemas.Subject.model_validate(updated_subject)
         )
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Error updating subject: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/v1/admin/subjects/{subject_id}", response_model=schemas.ResponseWrapper)
+def delete_subject(
+    subject_id: int = Path(..., gt=0),
+    soft_delete: bool = Query(True),
+    db: Session = Depends(get_db)
+):
+    """Delete a subject (soft delete by default, permanent if soft_delete is False)"""
+    try:
+        print(f"Deleting subject {subject_id}, soft_delete={soft_delete}")
+        
+        subject = crud.subject.get(db=db, id=subject_id)
+        if not subject:
+            raise HTTPException(status_code=404, detail="Subject not found")
+            
+        if soft_delete:
+            updated_subject = crud.subject.soft_delete(db=db, id=subject_id)
+            if not updated_subject:
+                raise HTTPException(status_code=404, detail="Subject not found for soft delete")
+            message = "Subject deactivated successfully"
+            print(f"Soft deleted subject: {updated_subject}")
+        else:
+            deleted_subject = crud.subject.delete(db=db, id=subject_id)
+            if not deleted_subject:
+                raise HTTPException(status_code=404, detail="Subject not found for deletion")
+            message = "Subject permanently deleted successfully"
+            print(f"Hard deleted subject: {deleted_subject}")
+            
+        return schemas.ResponseWrapper(message=message)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting subject: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 # Topics Endpoints
