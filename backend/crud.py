@@ -331,65 +331,62 @@ class HierarchyCRUD:
         ).order_by(models.SchoolLevel.display_order).all()
 
     def get_statistics(self, db: Session, school_id: Optional[int] = None):
-        """Get statistics for the curriculum hierarchy"""
-        base_query = db.query(models.SchoolLevel)
+        """Get statistics for the curriculum hierarchy, both active and total counts"""
+        # School Levels
+        school_levels_query = db.query(models.SchoolLevel)
         if school_id:
-            base_query = base_query.filter(models.SchoolLevel.school_id == school_id)
-        
-        school_levels = base_query.filter(models.SchoolLevel.is_active == True).count()
-        
-        # Get sections count
-        sections = db.query(models.Section).join(models.SchoolLevel).filter(
-            models.Section.is_active == True
-        )
-        if school_id:
-            sections = sections.filter(models.SchoolLevel.school_id == school_id)
-        sections_count = sections.count()
-        
-        # Get related counts
-        forms_grades = db.query(models.FormGrade).join(models.Section).join(models.SchoolLevel).filter(
-            models.FormGrade.is_active == True
-        )
-        if school_id:
-            forms_grades = forms_grades.filter(models.SchoolLevel.school_id == school_id)
-        forms_grades_count = forms_grades.count()
+            school_levels_query = school_levels_query.filter(models.SchoolLevel.school_id == school_id)
+        total_school_levels = school_levels_query.count()
+        active_school_levels = school_levels_query.filter(models.SchoolLevel.is_active == True).count()
 
-        terms = db.query(models.Term).join(models.FormGrade).join(models.Section).join(models.SchoolLevel).filter(
-            models.Term.is_active == True
-        )
+        # Forms/Grades
+        forms_grades_query = db.query(models.FormGrade)
         if school_id:
-            terms = terms.filter(models.SchoolLevel.school_id == school_id)
-        terms_count = terms.count()
+            forms_grades_query = forms_grades_query.join(models.SchoolLevel).filter(models.SchoolLevel.school_id == school_id)
+        total_forms_grades = forms_grades_query.count()
+        active_forms_grades = forms_grades_query.filter(models.FormGrade.is_active == True).count()
 
-        subjects = db.query(models.Subject).join(models.Term).join(models.FormGrade).join(models.Section).join(models.SchoolLevel).filter(
-            models.Subject.is_active == True
-        )
+        # Terms
+        terms_query = db.query(models.Term)
         if school_id:
-            subjects = subjects.filter(models.SchoolLevel.school_id == school_id)
-        subjects_count = subjects.count()
+            terms_query = terms_query.join(models.FormGrade).join(models.SchoolLevel).filter(models.SchoolLevel.school_id == school_id)
+        total_terms = terms_query.count()
+        active_terms = terms_query.filter(models.Term.is_active == True).count()
 
-        topics = db.query(models.Topic).join(models.Subject).join(models.Term).join(models.FormGrade).join(models.Section).join(models.SchoolLevel).filter(
-            models.Topic.is_active == True
-        )
+        # Subjects
+        subjects_query = db.query(models.Subject)
         if school_id:
-            topics = topics.filter(models.SchoolLevel.school_id == school_id)
-        topics_count = topics.count()
+            subjects_query = subjects_query.join(models.Term).join(models.FormGrade).join(models.SchoolLevel).filter(models.SchoolLevel.school_id == school_id)
+        total_subjects = subjects_query.count()
+        active_subjects = subjects_query.filter(models.Subject.is_active == True).count()
 
-        subtopics = db.query(models.Subtopic).join(models.Topic).join(models.Subject).join(models.Term).join(models.FormGrade).join(models.Section).join(models.SchoolLevel).filter(
-            models.Subtopic.is_active == True
-        )
+        # Topics
+        topics_query = db.query(models.Topic)
         if school_id:
-            subtopics = subtopics.filter(models.SchoolLevel.school_id == school_id)
-        subtopics_count = subtopics.count()
+            topics_query = topics_query.join(models.Subject).join(models.Term).join(models.FormGrade).join(models.SchoolLevel).filter(models.SchoolLevel.school_id == school_id)
+        total_topics = topics_query.count()
+        active_topics = topics_query.filter(models.Topic.is_active == True).count()
+
+        # Subtopics
+        subtopics_query = db.query(models.Subtopic)
+        if school_id:
+            subtopics_query = subtopics_query.join(models.Topic).join(models.Subject).join(models.Term).join(models.FormGrade).join(models.SchoolLevel).filter(models.SchoolLevel.school_id == school_id)
+        total_subtopics = subtopics_query.count()
+        active_subtopics = subtopics_query.filter(models.Subtopic.is_active == True).count()
 
         return {
-            "total_school_levels": school_levels,
-            "total_sections": sections_count,
-            "total_forms_grades": forms_grades_count,
-            "total_terms": terms_count,
-            "total_subjects": subjects_count,
-            "total_topics": topics_count,
-            "total_subtopics": subtopics_count
+            "total_school_levels": total_school_levels,
+            "active_school_levels": active_school_levels,
+            "total_forms_grades": total_forms_grades,
+            "active_forms_grades": active_forms_grades,
+            "total_terms": total_terms,
+            "active_terms": active_terms,
+            "total_subjects": total_subjects,
+            "active_subjects": active_subjects,
+            "total_topics": total_topics,
+            "active_topics": active_topics,
+            "total_subtopics": total_subtopics,
+            "active_subtopics": active_subtopics
         }
 
     def duplicate_structure(self, db: Session, source_id: int, target_id: int, level: str):

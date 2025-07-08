@@ -5,24 +5,29 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { 
-  BarChart3, 
-  TrendingUp, 
-  Users, 
-  BookOpen, 
-  Calendar,
   GraduationCap,
+  Users,
+  Calendar,
+  BookMarked,
   FileText,
   List,
   Plus,
+  ArrowRight,
+  AlertCircle,
+  CheckCircle2,
+  Target,
+  BarChart3,
   Eye,
   Activity,
-  Clock,
-  Target
+  RefreshCw,
+  Wifi,
+  WifiOff,
+  ServerOff
 } from 'lucide-react'
-import { utilityApi } from '@/lib/api'
 import Link from 'next/link'
+import { cn } from '@/lib/utils'
 
 interface DashboardStats {
   total_school_levels: number
@@ -31,425 +36,575 @@ interface DashboardStats {
   total_subjects: number
   total_topics: number
   total_subtopics: number
+  active_school_levels: number
+  active_forms_grades: number
+  active_terms: number
+  active_subjects: number
+  active_topics: number
+  active_subtopics: number
 }
 
-interface QuickAction {
-  title: string
-  description: string
-  href: string
-  icon: React.ComponentType<{ className?: string }>
-  color: string
+interface SystemHealth {
+  status: 'excellent' | 'good' | 'warning' | 'critical'
+  score: number
+  issues: string[]
+  recommendations: string[]
 }
 
-const quickActions: QuickAction[] = [
-  {
-    title: 'Add School Level',
-    description: 'Create Primary, Secondary, or High School level',
-    href: '/admin/school-levels/new',
-    icon: GraduationCap,
-    color: 'bg-blue-500'
-  },
-  {
-    title: 'Add Subject',
-    description: 'Create new subject with colors and animations',
-    href: '/admin/subjects/new',
-    icon: BookOpen,
-    color: 'bg-green-500'
-  },
-  {
-    title: 'Add Topic',
-    description: 'Create curriculum topic with objectives',
-    href: '/admin/topics/new',
-    icon: FileText,
-    color: 'bg-purple-500'
-  },
-  {
-    title: 'View Hierarchy',
-    description: 'Explore complete curriculum structure',
-    href: '/admin/hierarchy',
-    icon: List,
-    color: 'bg-orange-500'
-  }
-]
-
-const recentActivities = [
-  {
-    action: 'Created new subject',
-    item: 'Mathematics - Grade 5',
-    time: '2 minutes ago',
-    color: 'bg-blue-100 text-blue-700'
-  },
-  {
-    action: 'Added topic',
-    item: 'Fractions and Decimals',
-    time: '15 minutes ago',
-    color: 'bg-green-100 text-green-700'
-  },
-  {
-    action: 'Updated term',
-    item: 'Term 2 - Form 3',
-    time: '1 hour ago',
-    color: 'bg-purple-100 text-purple-700'
-  },
-  {
-    action: 'Created subtopic',
-    item: 'Basic Addition Methods',
-    time: '2 hours ago',
-    color: 'bg-orange-100 text-orange-700'
-  }
-]
-
-export default function AdminDashboard() {
+const AdminDashboard = () => {
   const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'failed'>('connecting')
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      setConnectionStatus('connecting')
+      
+      console.log('Fetching dashboard data from:', 'http://localhost:8000/api/v1/admin/statistics/')
+      
+      const response = await fetch('http://localhost:8000/api/v1/admin/statistics/', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      })
+
+      console.log('Response status:', response.status)
+      console.log('Response ok:', response.ok)
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      console.log('API Response:', data)
+      
+      if (data.success && data.data) {
+        setStats(data.data)
+        calculateSystemHealth(data.data)
+        setConnectionStatus('connected')
+      } else {
+        throw new Error(data.message || 'API returned unsuccessful response')
+      }
+    } catch (err: any) {
+      console.error('Dashboard error:', err)
+      
+      // More specific error messages
+      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+        setError('Cannot connect to backend server. Make sure your FastAPI server is running on localhost:8000')
+      } else if (err.message?.includes('CORS')) {
+        setError('CORS error: Backend server needs to allow requests from localhost:3000')
+      } else if (err.message?.includes('ERR_CONNECTION_REFUSED')) {
+        setError('Backend server is not running. Please start your FastAPI server.')
+      } else {
+        setError(`Connection error: ${err.message || 'Unknown error occurred'}`)
+      }
+      setConnectionStatus('failed')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        setLoading(true)
-        const response = await utilityApi.getStatistics()
-        if (response.success) {
-          setStats(response.data)
+    fetchDashboardData()
+  }, [])
+
+  const calculateSystemHealth = (data: DashboardStats) => {
+    let score = 0
+    const issues: string[] = []
+    const recommendations: string[] = []
+
+    if (data.total_school_levels > 0) {
+      score += 25
+      if (data.total_forms_grades > 0) {
+        score += 20
+        if (data.total_terms > 0) {
+          score += 20
+          if (data.total_subjects > 0) {
+            score += 20
+            if (data.total_topics > 0) {
+              score += 10
+              if (data.total_subtopics > 0) {
+                score += 5
+              } else {
+                recommendations.push('Add subtopics for detailed lesson planning')
+              }
+            } else {
+              issues.push('No curriculum topics created')
+            }
+          } else {
+            issues.push('No subjects added to terms')
+          }
         } else {
-          setError('Failed to fetch statistics')
+          issues.push('No academic terms configured')
         }
-      } catch (err) {
-        setError('Error connecting to server')
-        console.error('Dashboard stats error:', err)
-      } finally {
-        setLoading(false)
+      } else {
+        issues.push('No forms/grades created under school levels')
       }
+    } else {
+      issues.push('No school levels configured - this is the foundation of your system')
     }
 
-    fetchStats()
-  }, [])
+    let status: SystemHealth['status'] = 'critical'
+    if (score >= 90) status = 'excellent'
+    else if (score >= 70) status = 'good'
+    else if (score >= 40) status = 'warning'
+
+    setSystemHealth({ status, score, issues, recommendations })
+  }
 
   const statCards = [
     {
       title: 'School Levels',
-      value: stats?.total_school_levels || 0,
-      description: 'Primary, Secondary, High School',
+      value: stats?.active_school_levels || 0,
+      total: stats?.total_school_levels || 0,
+      description: 'Foundation of your system',
       icon: GraduationCap,
       color: 'text-blue-600',
-      bgColor: 'bg-blue-100 dark:bg-blue-900/20'
+      bgColor: 'bg-blue-100',
+      href: '/admin/school-levels',
+      isFoundation: true
     },
     {
       title: 'Forms & Grades',
-      value: stats?.total_forms_grades || 0,
-      description: 'Academic grade levels',
+      value: stats?.active_forms_grades || 0,
+      total: stats?.total_forms_grades || 0,
+      description: 'Grade levels within schools',
       icon: Users,
-      color: 'text-green-600',
-      bgColor: 'bg-green-100 dark:bg-green-900/20'
+      color: 'text-emerald-600',
+      bgColor: 'bg-emerald-100',
+      href: '/admin/school-levels',
+      parentCount: stats?.total_school_levels || 0
     },
     {
-      title: 'Terms',
-      value: stats?.total_terms || 0,
-      description: 'Academic periods',
+      title: 'Academic Terms',
+      value: stats?.active_terms || 0,
+      total: stats?.total_terms || 0,
+      description: 'Terms within grades',
       icon: Calendar,
       color: 'text-purple-600',
-      bgColor: 'bg-purple-100 dark:bg-purple-900/20'
+      bgColor: 'bg-purple-100',
+      href: '/admin/school-levels',
+      parentCount: stats?.total_forms_grades || 0
     },
     {
       title: 'Subjects',
-      value: stats?.total_subjects || 0,
-      description: 'Teaching subjects',
-      icon: BookOpen,
+      value: stats?.active_subjects || 0,
+      total: stats?.total_subjects || 0,
+      description: 'Subjects within terms',
+      icon: BookMarked,
       color: 'text-orange-600',
-      bgColor: 'bg-orange-100 dark:bg-orange-900/20'
+      bgColor: 'bg-orange-100',
+      href: '/admin/school-levels',
+      parentCount: stats?.total_terms || 0
     },
     {
       title: 'Topics',
-      value: stats?.total_topics || 0,
-      description: 'Curriculum topics',
+      value: stats?.active_topics || 0,
+      total: stats?.total_topics || 0,
+      description: 'Topics within subjects',
       icon: FileText,
-      color: 'text-red-600',
-      bgColor: 'bg-red-100 dark:bg-red-900/20'
+      color: 'text-rose-600',
+      bgColor: 'bg-rose-100',
+      href: '/admin/school-levels',
+      parentCount: stats?.total_subjects || 0
     },
     {
       title: 'Subtopics',
-      value: stats?.total_subtopics || 0,
+      value: stats?.active_subtopics || 0,
+      total: stats?.total_subtopics || 0,
       description: 'Detailed lessons',
       icon: List,
-      color: 'text-cyan-600',
-      bgColor: 'bg-cyan-100 dark:bg-cyan-900/20'
+      color: 'text-indigo-600',
+      bgColor: 'bg-indigo-100',
+      href: '/admin/school-levels',
+      parentCount: stats?.total_topics || 0
     }
   ]
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <div className="spinner mb-4"></div>
-          <p className="text-gray-500">Loading dashboard...</p>
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+          <div className="space-y-2">
+            <p className="text-lg font-medium text-gray-900">Connecting to Backend</p>
+            <p className="text-gray-500">Fetching your school data from localhost:8000...</p>
+            <div className="text-xs text-gray-400 bg-gray-100 p-2 rounded">
+              API Endpoint: /api/v1/admin/statistics/
+            </div>
+          </div>
         </div>
       </div>
     )
   }
 
-  return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-            Dashboard
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Welcome back! Here's your curriculum overview.
-          </p>
-        </div>
-        <div className="flex space-x-2">
-          <Button variant="outline">
-            <Eye className="h-4 w-4 mr-2" />
-            View Reports
-          </Button>
-          <Button>
-            <Plus className="h-4 w-4 mr-2" />
-            Quick Add
-          </Button>
-        </div>
-      </div>
+  if (error) {
+    return (
+      <div className="p-6">
+        <Alert className="border-red-200 bg-red-50 mb-6">
+          <ServerOff className="h-4 w-4 text-red-600" />
+          <AlertDescription className="text-red-800">
+            <div className="space-y-3">
+              <p className="font-medium">Backend Connection Failed</p>
+              <p className="text-sm">{error}</p>
+              
+              <div className="space-y-2 text-sm">
+                <p className="font-medium">Troubleshooting Steps:</p>
+                <ol className="list-decimal list-inside space-y-1 ml-4">
+                  <li>Make sure your FastAPI server is running: <code className="bg-red-100 px-1 rounded">uvicorn main:app --reload</code></li>
+                  <li>Check if backend is accessible at: <a href="http://localhost:8000/docs" target="_blank" className="text-red-700 underline">http://localhost:8000/docs</a></li>
+                  <li>Test the API endpoint directly: <a href="http://localhost:8000/api/v1/admin/statistics/" target="_blank" className="text-red-700 underline">http://localhost:8000/api/v1/admin/statistics/</a></li>
+                  <li>Add CORS configuration to your FastAPI backend</li>
+                </ol>
+              </div>
+              
+              <div className="flex space-x-2">
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={fetchDashboardData}
+                  className="border-red-300 text-red-700 hover:bg-red-100"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Retry Connection
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => window.open('http://localhost:8000/docs', '_blank')}
+                  className="border-red-300 text-red-700 hover:bg-red-100"
+                >
+                  Check Backend API
+                </Button>
+              </div>
+            </div>
+          </AlertDescription>
+        </Alert>
 
-      {/* Error State */}
-      {error && (
-        <Card className="border-red-200 bg-red-50 dark:bg-red-900/20">
-          <CardContent className="pt-6">
-            <div className="flex items-center text-red-600 dark:text-red-400">
-              <Activity className="h-5 w-5 mr-2" />
-              {error}
+        {/* Offline Mode */}
+        <Card className="border-yellow-200 bg-yellow-50">
+          <CardHeader>
+            <CardTitle className="text-yellow-900 flex items-center space-x-2">
+              <WifiOff className="w-5 h-5" />
+              <span>Offline Mode</span>
+            </CardTitle>
+            <CardDescription className="text-yellow-700">
+              You can still access the management interface, but data won't be loaded until backend connection is restored.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4">
+              <Link href="/admin/school-levels">
+                <Button variant="outline" className="w-full justify-start">
+                  <GraduationCap className="w-4 h-4 mr-2" />
+                  Manage School Levels
+                </Button>
+              </Link>
+              <Link href="/admin/school-levels/new">
+                <Button className="w-full justify-start bg-blue-600 hover:bg-blue-700">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add School Level
+                </Button>
+              </Link>
             </div>
           </CardContent>
         </Card>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-6 space-y-8">
+      {/* Header with Connection Status */}
+      <div className="flex justify-between items-start">
+        <div className="space-y-2">
+          <div className="flex items-center space-x-3">
+            <h1 className="text-4xl font-bold text-gray-900">School Management Hub</h1>
+            <div className="flex items-center space-x-2">
+              {systemHealth && (
+                <Badge className={cn(
+                  "px-3 py-1",
+                  systemHealth.status === 'excellent' && "bg-green-100 text-green-800 border-green-200",
+                  systemHealth.status === 'good' && "bg-blue-100 text-blue-800 border-blue-200",
+                  systemHealth.status === 'warning' && "bg-yellow-100 text-yellow-800 border-yellow-200",
+                  systemHealth.status === 'critical' && "bg-red-100 text-red-800 border-red-200"
+                )}>
+                  <Activity className="w-3 h-3 mr-1" />
+                  {systemHealth.status}
+                </Badge>
+              )}
+              <Badge className="px-2 py-1 bg-green-100 text-green-800 border-green-200">
+                <Wifi className="w-3 h-3 mr-1" />
+                Connected
+              </Badge>
+            </div>
+          </div>
+          <p className="text-lg text-gray-600">
+            Manage your complete educational hierarchy from school levels down to lessons
+          </p>
+        </div>
+
+        <div className="flex space-x-3">
+          <Button variant="outline" onClick={fetchDashboardData}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh Data
+          </Button>
+          <Link href="/admin/hierarchy">
+            <Button variant="outline">
+              <Eye className="w-4 h-4 mr-2" />
+              View Hierarchy
+            </Button>
+          </Link>
+          <Link href="/admin/school-levels/new">
+            <Button className="bg-blue-600 hover:bg-blue-700">
+              <Plus className="w-4 h-4 mr-2" />
+              Add School Level
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      {/* System Health Alert */}
+      {systemHealth && systemHealth.status !== 'excellent' && (
+        <Alert className={cn(
+          "border-l-4",
+          systemHealth.status === 'critical' && "border-red-500 bg-red-50",
+          systemHealth.status === 'warning' && "border-yellow-500 bg-yellow-50",
+          systemHealth.status === 'good' && "border-blue-500 bg-blue-50"
+        )}>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">System Setup: {systemHealth.score}/100</span>
+                <Progress value={systemHealth.score} className="w-32" />
+              </div>
+              {systemHealth.issues.length > 0 && (
+                <div className="text-sm">
+                  <span className="font-medium">Next steps:</span> {systemHealth.issues.join(', ')}
+                </div>
+              )}
+            </div>
+          </AlertDescription>
+        </Alert>
       )}
 
-      {/* Stats Grid */}
+      {/* Hierarchy Flow Visualization */}
+      <Card className="border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+        <CardHeader>
+          <CardTitle className="text-blue-900 flex items-center space-x-2">
+            <Target className="w-5 h-5" />
+            <span>Educational Hierarchy Overview</span>
+          </CardTitle>
+          <CardDescription className="text-blue-700">
+            Your complete school structure flows from School Levels down to individual lessons
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between p-4 bg-white rounded-lg">
+            <div className="flex items-center space-x-4 overflow-x-auto">
+              {statCards.slice(0, 6).map((card, index) => (
+                <div key={index} className="flex items-center flex-shrink-0">
+                  <div className="text-center">
+                    <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center mb-2", card.bgColor)}>
+                      <card.icon className={cn("w-6 h-6", card.color)} />
+                    </div>
+                    <div className="text-lg font-bold text-gray-900">{card.value}</div>
+                    <div className="text-xs text-gray-600">{card.title}</div>
+                  </div>
+                  {index < 5 && (
+                    <ArrowRight className="w-4 h-4 text-gray-400 mx-3" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Main Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {statCards.map((card, index) => (
-          <Card key={index} className="hover:shadow-lg transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                {card.title}
-              </CardTitle>
-              <div className={`h-8 w-8 rounded-lg ${card.bgColor} flex items-center justify-center`}>
-                <card.icon className={`h-4 w-4 ${card.color}`} />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                {card.value.toLocaleString()}
-              </div>
-              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                {card.description}
-              </p>
-            </CardContent>
-          </Card>
+          <Link key={index} href={card.href}>
+            <Card className={cn(
+              "hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 cursor-pointer",
+              card.isFoundation && "ring-2 ring-blue-200"
+            )}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium text-gray-600">
+                  {card.title}
+                  {card.isFoundation && (
+                    <Badge variant="secondary" className="ml-2 text-xs">Foundation</Badge>
+                  )}
+                </CardTitle>
+                <div className={cn("h-10 w-10 rounded-xl flex items-center justify-center", card.bgColor)}>
+                  <card.icon className={cn("h-5 w-5", card.color)} />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-bold text-gray-900">{card.value}</span>
+                  <span className="text-xs text-gray-500">active</span>
+                  <span className="text-lg text-gray-400">/</span>
+                  <span className="text-lg font-semibold text-gray-500">{card.total}</span>
+                  <span className="text-xs text-gray-400">total</span>
+                </div>
+                <p className="text-sm text-gray-600">{card.description}</p>
+                
+                {/* Show ratio to parent level */}
+                {card.parentCount !== undefined && card.parentCount > 0 && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>Average per parent</span>
+                      <span>{(card.total / card.parentCount).toFixed(1)}</span>
+                    </div>
+                    <Progress 
+                      value={Math.min((card.total / card.parentCount / 3) * 100, 100)} 
+                      className="h-1"
+                    />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </Link>
         ))}
       </div>
 
-      {/* Main Content Tabs */}
-      <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="quick-actions">Quick Actions</TabsTrigger>
-          <TabsTrigger value="recent">Recent Activity</TabsTrigger>
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="overview" className="space-y-6">
-          <div className="grid lg:grid-cols-2 gap-6">
-            {/* Curriculum Progress */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Target className="h-5 w-5 mr-2 text-blue-600" />
-                  Curriculum Progress
-                </CardTitle>
-                <CardDescription>
-                  Overall completion status of your curriculum setup
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span>School Structure</span>
-                    <span>85%</span>
-                  </div>
-                  <Progress value={85} className="h-2" />
-                </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span>Subject Planning</span>
-                    <span>72%</span>
-                  </div>
-                  <Progress value={72} className="h-2" />
-                </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span>Content Development</span>
-                    <span>58%</span>
-                  </div>
-                  <Progress value={58} className="h-2" />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* System Health */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Activity className="h-5 w-5 mr-2 text-green-600" />
-                  System Health
-                </CardTitle>
-                <CardDescription>
-                  Current system status and performance
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">API Response Time</span>
-                  <Badge variant="secondary">Fast</Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Database Status</span>
-                  <Badge className="bg-green-100 text-green-700">Healthy</Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Last Backup</span>
-                  <span className="text-sm text-gray-600">2 hours ago</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Active Sessions</span>
-                  <span className="text-sm text-gray-600">1</span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="quick-actions">
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {quickActions.map((action, index) => (
-              <Link key={index} href={action.href}>
-                <Card className="hover:shadow-lg transition-all duration-200 cursor-pointer group">
-                  <CardContent className="p-6 text-center">
-                    <div className={`h-12 w-12 rounded-lg ${action.color} flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform`}>
-                      <action.icon className="h-6 w-6 text-white" />
-                    </div>
-                    <h3 className="font-semibold text-gray-900 dark:text-white mb-2">
-                      {action.title}
-                    </h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      {action.description}
-                    </p>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="recent">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Clock className="h-5 w-5 mr-2 text-orange-600" />
-                Recent Activity
-              </CardTitle>
-              <CardDescription>
-                Latest changes and updates to your curriculum
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {recentActivities.map((activity, index) => (
-                  <div key={index} className="flex items-center space-x-4 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                    <div className={`h-2 w-2 rounded-full ${activity.color.split(' ')[0]}`}></div>
-                    <div className="flex-1">
-                      <div className="text-sm font-medium text-gray-900 dark:text-white">
-                        {activity.action}
-                      </div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400">
-                        {activity.item}
-                      </div>
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {activity.time}
-                    </div>
-                  </div>
-                ))}
+      {/* Primary Action */}
+      <Card className="border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50">
+        <CardHeader>
+          <CardTitle className="text-emerald-900 flex items-center space-x-2">
+            <GraduationCap className="w-6 h-6" />
+            <span>School Levels - Your Starting Point</span>
+          </CardTitle>
+          <CardDescription className="text-emerald-700">
+            Everything in your system starts with school levels. Create and manage your educational structure here.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div className="space-y-2">
+              <p className="text-sm text-gray-600">
+                {stats?.total_school_levels === 0 
+                  ? "No school levels created yet. Start by creating your first school level."
+                  : `You have ${stats?.total_school_levels} school level${stats?.total_school_levels === 1 ? '' : 's'} configured.`
+                }
+              </p>
+              <div className="flex space-x-2">
+                <Link href="/admin/school-levels">
+                  <Button variant="outline">
+                    <Eye className="w-4 h-4 mr-2" />
+                    Manage School Levels
+                  </Button>
+                </Link>
+                <Link href="/admin/school-levels/new">
+                  <Button className="bg-emerald-600 hover:bg-emerald-700">
+                    <Plus className="w-4 h-4 mr-2" />
+                    {stats?.total_school_levels === 0 ? 'Create First School Level' : 'Add School Level'}
+                  </Button>
+                </Link>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="analytics">
-          <div className="grid lg:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <TrendingUp className="h-5 w-5 mr-2 text-purple-600" />
-                  Growth Metrics
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Subjects Created This Month</span>
-                    <div className="flex items-center">
-                      <span className="text-lg font-bold text-green-600 mr-2">+12</span>
-                      <Badge variant="secondary">↗ 24%</Badge>
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Topics Added This Week</span>
-                    <div className="flex items-center">
-                      <span className="text-lg font-bold text-blue-600 mr-2">+8</span>
-                      <Badge variant="secondary">↗ 15%</Badge>
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Curriculum Completion</span>
-                    <div className="flex items-center">
-                      <span className="text-lg font-bold text-purple-600 mr-2">68%</span>
-                      <Badge variant="secondary">↗ 8%</Badge>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <BarChart3 className="h-5 w-5 mr-2 text-cyan-600" />
-                  Usage Insights
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                    <div className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
-                      {((stats?.total_topics || 0) / Math.max(stats?.total_subjects || 1, 1)).toFixed(1)}
-                    </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400">
-                      Average Topics per Subject
-                    </div>
-                  </div>
-                  <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                    <div className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
-                      {((stats?.total_subtopics || 0) / Math.max(stats?.total_topics || 1, 1)).toFixed(1)}
-                    </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400">
-                      Average Subtopics per Topic
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            </div>
           </div>
-        </TabsContent>
-      </Tabs>
+        </CardContent>
+      </Card>
+
+      {/* System Health Overview */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Target className="w-5 h-5 text-green-600" />
+              <span>System Health</span>
+            </CardTitle>
+            <CardDescription>Overall setup progress</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {systemHealth && (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Setup Progress</span>
+                  <span className="text-2xl font-bold">{systemHealth.score}/100</span>
+                </div>
+                <Progress value={systemHealth.score} className="h-2" />
+                
+                <div className="space-y-2">
+                  {systemHealth.score >= 25 && (
+                    <div className="flex items-center text-sm">
+                      <CheckCircle2 className="w-4 h-4 text-green-500 mr-2" />
+                      <span>School levels configured</span>
+                    </div>
+                  )}
+                  {systemHealth.issues.map((issue, idx) => (
+                    <div key={idx} className="flex items-center text-sm text-gray-600">
+                      <AlertCircle className="w-4 h-4 text-yellow-500 mr-2" />
+                      <span>{issue}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <BarChart3 className="w-5 h-5 text-blue-600" />
+              <span>Content Overview</span>
+            </CardTitle>
+            <CardDescription>Distribution of educational content</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <div className="text-2xl font-bold text-blue-600">
+                  {stats && stats.total_school_levels > 0 
+                    ? (stats.total_forms_grades / stats.total_school_levels).toFixed(1)
+                    : '0'
+                  }
+                </div>
+                <div className="text-xs text-blue-700">Grades per School</div>
+              </div>
+              <div className="text-center p-3 bg-green-50 rounded-lg">
+                <div className="text-2xl font-bold text-green-600">
+                  {stats && stats.total_forms_grades > 0 
+                    ? (stats.total_subjects / stats.total_forms_grades).toFixed(1)
+                    : '0'
+                  }
+                </div>
+                <div className="text-xs text-green-700">Subjects per Grade</div>
+              </div>
+              <div className="text-center p-3 bg-purple-50 rounded-lg">
+                <div className="text-2xl font-bold text-purple-600">
+                  {stats && stats.total_subjects > 0 
+                    ? (stats.total_topics / stats.total_subjects).toFixed(1)
+                    : '0'
+                  }
+                </div>
+                <div className="text-xs text-purple-700">Topics per Subject</div>
+              </div>
+              <div className="text-center p-3 bg-orange-50 rounded-lg">
+                <div className="text-2xl font-bold text-orange-600">
+                  {stats && stats.total_topics > 0 
+                    ? (stats.total_subtopics / stats.total_topics).toFixed(1)
+                    : '0'
+                  }
+                </div>
+                <div className="text-xs text-orange-700">Lessons per Topic</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }
+
+export default AdminDashboard
