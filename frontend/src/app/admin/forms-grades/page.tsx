@@ -3,16 +3,18 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Plus, Edit, Trash2, Search, RefreshCw, Eye, Filter, GraduationCap, ArrowLeft } from 'lucide-react'
+import { Plus, Edit, Trash2, Search, RefreshCw, Eye, Filter, GraduationCap, ArrowLeft, Calendar, BookOpen, AlertCircle } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { toast } from 'sonner'
-import { formGradeApi, type FormGrade, type Section } from '@/lib/api'
+import { formGradeApi, schoolLevelApi, type FormGrade, type SchoolLevel } from '@/lib/api'
 import { DeleteDialog } from '@/components/ui/delete-dialog'
+import { safeRoutes, isValidId } from '@/lib/safe-links'
 
 export default function FormsGradesPage() {
   const router = useRouter()
@@ -37,28 +39,39 @@ export default function FormsGradesPage() {
       
       // Get school level ID from URL params
       const urlParams = new URLSearchParams(window.location.search)
-      const schoolLevelId = urlParams.get('school_level_id')
+      const schoolLevelIdParam = urlParams.get('school_level_id')
+      const schoolLevelId = schoolLevelIdParam ? parseInt(schoolLevelIdParam, 10) : null
+      
+      console.log('Forms/Grades page - URL params:', { schoolLevelIdParam, schoolLevelId })
       
       // Load school levels for filtering
-      const schoolLevelsResponse = await fetch('http://localhost:8000/api/v1/admin/school-levels/?include_inactive=true')
-      if (schoolLevelsResponse.ok) {
-        const schoolLevelsData = await schoolLevelsResponse.json()
-        setSchoolLevels(schoolLevelsData.data || [])
+      const schoolLevelsResponse = await schoolLevelApi.getAll(true)
+      if (schoolLevelsResponse.success && schoolLevelsResponse.data) {
+        setSchoolLevels(schoolLevelsResponse.data)
         
-        // Set current school level if specified
-        if (schoolLevelId) {
-          const schoolLevel = schoolLevelsData.data?.find((sl: SchoolLevel) => sl.id === parseInt(schoolLevelId))
-          setCurrentSchoolLevel(schoolLevel || null)
-          setSchoolLevelFilter(parseInt(schoolLevelId))
+        // Set current school level if specified and valid
+        if (schoolLevelId && isValidId(schoolLevelId)) {
+          const schoolLevel = schoolLevelsResponse.data.find((sl: SchoolLevel) => sl.id === schoolLevelId)
+          if (schoolLevel) {
+            setCurrentSchoolLevel(schoolLevel)
+            setSchoolLevelFilter(schoolLevelId)
+          } else {
+            console.warn(`School level with ID ${schoolLevelId} not found`)
+          }
         }
       }
       
       // Load forms/grades
       const includeInactive = statusFilter !== 'active'
-      const response = await formGradeApi.getAll({ 
-        school_level_id: schoolLevelId ? parseInt(schoolLevelId) : undefined,
-        include_inactive: includeInactive
-      })
+      const options: any = { include_inactive: includeInactive }
+      
+      if (schoolLevelId && isValidId(schoolLevelId)) {
+        options.school_level_id = schoolLevelId
+      }
+      
+      console.log('Loading forms/grades with options:', options)
+      
+      const response = await formGradeApi.getAll(options)
       
       if (response.success && response.data) {
         setFormsGrades(response.data)
@@ -67,8 +80,8 @@ export default function FormsGradesPage() {
         throw new Error(response.message || 'Failed to load forms/grades')
       }
     } catch (error: any) {
-      console.error('Failed to load data:', error)
-      toast.error(error.message || 'Failed to load data')
+      console.error('Failed to load forms/grades:', error)
+      toast.error(error.message || 'Failed to load forms/grades')
     } finally {
       setLoading(false)
     }
@@ -80,63 +93,44 @@ export default function FormsGradesPage() {
 
     // Apply status filter
     if (statusFilter === 'active') {
-      filtered = filtered.filter(formGrade => formGrade.is_active)
+      filtered = filtered.filter(fg => fg.is_active)
     } else if (statusFilter === 'inactive') {
-      filtered = filtered.filter(formGrade => !formGrade.is_active)
+      filtered = filtered.filter(fg => !fg.is_active)
     }
 
     // Apply school level filter
     if (schoolLevelFilter) {
-      filtered = filtered.filter(formGrade => formGrade.school_level_id === schoolLevelFilter)
+      filtered = filtered.filter(fg => fg.school_level_id === schoolLevelFilter)
     }
 
     // Apply search filter
     if (searchQuery.trim()) {
-      filtered = filtered.filter(formGrade =>
-        formGrade.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        formGrade.code.toLowerCase().includes(searchQuery.toLowerCase())
+      const query = searchQuery.toLowerCase().trim()
+      filtered = filtered.filter(fg =>
+        fg.name.toLowerCase().includes(query) ||
+        fg.code.toLowerCase().includes(query) ||
+        (fg.description && fg.description.toLowerCase().includes(query))
       )
     }
 
     setFilteredFormsGrades(filtered)
-  }, [searchQuery, formsGrades, statusFilter, schoolLevelFilter])
+  }, [formsGrades, statusFilter, schoolLevelFilter, searchQuery])
 
   // Load data on component mount
   useEffect(() => {
     loadData()
-  }, [])
-
-  // Auto-refresh when returning from create page
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        loadData()
-      }
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [])
+  }, [statusFilter])
 
   // Handle delete
-  const handleDelete = async (id: number, name: string) => {
-    const formGrade = formsGrades.find(fg => fg.id === id)
-    if (formGrade) {
-      setItemToDelete(formGrade)
-      setDeleteDialogOpen(true)
-    }
-  }
-
-  // Handle delete confirmation
-  const handleDeleteConfirm = async (hardDelete: boolean) => {
+  const handleDelete = async (permanent: boolean = false) => {
     if (!itemToDelete) return
 
     try {
       setDeleteLoading(true)
-      const response = await formGradeApi.delete(itemToDelete.id, hardDelete)
+      const response = await formGradeApi.delete(itemToDelete.id, !permanent)
       
       if (response.success) {
-        toast.success(`Form/Grade ${hardDelete ? 'permanently deleted' : 'deleted'} successfully`)
+        toast.success(`Form/Grade ${permanent ? 'permanently deleted' : 'deleted'} successfully`)
         loadData() // Reload the list
         setDeleteDialogOpen(false)
         setItemToDelete(null)
@@ -151,13 +145,53 @@ export default function FormsGradesPage() {
     }
   }
 
-  // Handle view/edit
-  const handleEdit = (id: number) => {
-    router.push(`/admin/forms-grades/${id}/edit`)
+  // Safe navigation helpers
+  const navigateToTerms = (formGrade: FormGrade) => {
+    if (!isValidId(formGrade.id)) {
+      console.error('Invalid form/grade ID for terms navigation:', formGrade.id)
+      toast.error('Invalid form/grade ID')
+      return
+    }
+    
+    try {
+      const url = safeRoutes.termsForFormGrade(formGrade.id)
+      router.push(url)
+    } catch (error: any) {
+      console.error('Navigation error:', error)
+      toast.error(error.message)
+    }
   }
 
-  const handleView = (id: number) => {
-    router.push(`/admin/forms-grades/${id}`)
+  const navigateToEdit = (formGrade: FormGrade) => {
+    if (!isValidId(formGrade.id)) {
+      console.error('Invalid form/grade ID for edit navigation:', formGrade.id)
+      toast.error('Invalid form/grade ID')
+      return
+    }
+    
+    try {
+      const url = safeRoutes.editFormGrade(formGrade.id)
+      router.push(url)
+    } catch (error: any) {
+      console.error('Navigation error:', error)
+      toast.error(error.message)
+    }
+  }
+
+  const navigateToView = (formGrade: FormGrade) => {
+    if (!isValidId(formGrade.id)) {
+      console.error('Invalid form/grade ID for view navigation:', formGrade.id)
+      toast.error('Invalid form/grade ID')
+      return
+    }
+    
+    try {
+      const url = safeRoutes.viewFormGrade(formGrade.id)
+      router.push(url)
+    } catch (error: any) {
+      console.error('Navigation error:', error)
+      toast.error(error.message)
+    }
   }
 
   // Calculate stats
@@ -194,299 +228,304 @@ export default function FormsGradesPage() {
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Link href={currentSchoolLevel ? `/admin/forms-grades/new?school_level_id=${currentSchoolLevel.id}` : "/admin/forms-grades/new"}>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Add {currentSchoolLevel?.grade_type === 'form' ? 'Form' : 'Grade'}
-            </Button>
-          </Link>
+          {/* Safe link generation for new form/grade */}
+          {currentSchoolLevel && isValidId(currentSchoolLevel.id) ? (
+            <Link href={safeRoutes.newFormGradeForSchoolLevel(currentSchoolLevel.id)}>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Add {currentSchoolLevel.grade_type === 'form' ? 'Form' : 'Grade'}
+              </Button>
+            </Link>
+          ) : (
+            <Link href="/admin/forms-grades/new">
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Form/Grade
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
 
-      {/* Search and Filters */}
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total</CardTitle>
+            <GraduationCap className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formsGrades.length}</div>
+            <p className="text-xs text-muted-foreground">
+              {currentSchoolLevel?.grade_type === 'form' ? 'forms' : 'grades'} in total
+            </p>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active</CardTitle>
+            <Eye className="h-4 w-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{activeCount}</div>
+            <p className="text-xs text-muted-foreground">
+              Currently active
+            </p>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Inactive</CardTitle>
+            <Filter className="h-4 w-4 text-gray-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-gray-600">{inactiveCount}</div>
+            <p className="text-xs text-muted-foreground">
+              Currently inactive
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filters */}
       <Card className="mb-6">
-        <CardContent className="pt-6">
-          <div className="flex flex-col space-y-4">
-            {/* Search Bar */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4">
-              <div className="relative flex-1 w-full">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+        <CardHeader>
+          <CardTitle className="text-lg">Filters & Search</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Search */}
+            <div className="space-y-2">
+              <Label htmlFor="search">Search</Label>
+              <div className="relative">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search grades by name or code..."
+                  id="search"
+                  placeholder="Search by name or code..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
+                  className="pl-8"
                 />
               </div>
             </div>
 
-            {/* Filter Controls */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-4 sm:space-y-0 gap-4">
-              <div className="flex items-center space-x-6">
-                <div className="flex items-center space-x-2">
-                  <Filter className="h-4 w-4 text-gray-500" />
-                  <Label className="text-sm font-medium">Filters:</Label>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <button
-                    onClick={() => setStatusFilter('all')}
-                    className={`px-3 py-1 rounded text-sm transition-colors ${
-                      statusFilter === 'all'
-                        ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
+            {/* Status Filter */}
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <div className="flex space-x-2">
+                {(['all', 'active', 'inactive'] as const).map(status => (
+                  <Button
+                    key={status}
+                    variant={statusFilter === status ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setStatusFilter(status)}
                   >
-                    All
-                  </button>
-                  <button
-                    onClick={() => setStatusFilter('active')}
-                    className={`px-3 py-1 rounded text-sm transition-colors ${
-                      statusFilter === 'active'
-                        ? 'bg-green-100 text-green-700 border border-green-200'
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    Active Only
-                  </button>
-                  <button
-                    onClick={() => setStatusFilter('inactive')}
-                    className={`px-3 py-1 rounded text-sm transition-colors ${
-                      statusFilter === 'inactive'
-                        ? 'bg-gray-100 text-gray-700 border border-gray-200'
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    Inactive Only
-                  </button>
-                </div>
-              </div>
-
-              {/* School Level Filter */}
-              <div className="flex items-center space-x-2">
-                <Label className="text-sm font-medium">School Level:</Label>
-                <select
-                  value={schoolLevelFilter || ''}
-                  onChange={(e) => setSchoolLevelFilter(e.target.value ? Number(e.target.value) : null)}
-                  className="px-3 py-1 border border-gray-300 rounded text-sm"
-                >
-                  <option value="">All School Levels</option>
-                  {schoolLevels.map(schoolLevel => (
-                    <option key={schoolLevel.id} value={schoolLevel.id}>
-                      {schoolLevel.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Stats */}
-              <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
-                <span>Total: {formsGrades.length}</span>
-                <span>•</span>
-                <span className="text-green-600">Active: {activeCount}</span>
-                <span>•</span>
-                <span className="text-gray-500">Inactive: {inactiveCount}</span>
-                {filteredFormsGrades.length !== formsGrades.length && (
-                  <>
-                    <span>•</span>
-                    <span className="text-blue-600">Showing: {filteredFormsGrades.length}</span>
-                  </>
-                )}
+                    {status.charAt(0).toUpperCase() + status.slice(1)}
+                  </Button>
+                ))}
               </div>
             </div>
+
+            {/* School Level Filter */}
+            {!currentSchoolLevel && (
+              <div className="space-y-2">
+                <Label>School Level</Label>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant={schoolLevelFilter === null ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setSchoolLevelFilter(null)}
+                  >
+                    All
+                  </Button>
+                  {schoolLevels.slice(0, 3).map(level => (
+                    <Button
+                      key={level.id}
+                      variant={schoolLevelFilter === level.id ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setSchoolLevelFilter(level.id)}
+                    >
+                      {level.name}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
 
-      {/* Content */}
-      {loading ? (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-center py-12">
-              <div className="text-center">
-                <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-gray-400" />
-                <p className="text-gray-500">Loading grades...</p>
-              </div>
+      {/* Forms/Grades List */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span>
+              {currentSchoolLevel?.grade_type === 'form' ? 'Forms' : 'Grades'} List
+            </span>
+            <Badge variant="outline">
+              {filteredFormsGrades.length} showing
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+              <p className="mt-2 text-gray-600">Loading...</p>
             </div>
-          </CardContent>
-        </Card>
-      ) : filteredFormsGrades.length === 0 ? (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-center py-12">
-              {searchQuery || statusFilter !== 'all' || schoolLevelFilter ? (
-                <div>
-                  <p className="text-gray-500 mb-4">
-                    No grades found matching your filters
-                  </p>
-                  <div className="space-x-2">
-                    <Button variant="outline" onClick={() => setSearchQuery('')}>
-                      Clear Search
-                    </Button>
-                    <Button variant="outline" onClick={() => setStatusFilter('all')}>
-                      Show All
-                    </Button>
-                    <Button variant="outline" onClick={() => setSchoolLevelFilter(null)}>
-                      All School Levels
-                    </Button>
-                  </div>
-                </div>
+          ) : filteredFormsGrades.length === 0 ? (
+            <div className="text-center py-8">
+              <GraduationCap className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                No {statusFilter === 'all' ? '' : statusFilter} {currentSchoolLevel?.grade_type === 'form' ? 'forms' : 'grades'} found
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                {searchQuery 
+                  ? `No results found for "${searchQuery}"`
+                  : currentSchoolLevel
+                  ? `This school level has no ${statusFilter === 'all' ? '' : statusFilter} ${currentSchoolLevel.grade_type === 'form' ? 'forms' : 'grades'} yet.`
+                  : `No ${statusFilter === 'all' ? '' : statusFilter} forms/grades found.`
+                }
+              </p>
+              {currentSchoolLevel && isValidId(currentSchoolLevel.id) ? (
+                <Link href={safeRoutes.newFormGradeForSchoolLevel(currentSchoolLevel.id)}>
+                  <Button>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Create First {currentSchoolLevel.grade_type === 'form' ? 'Form' : 'Grade'}
+                  </Button>
+                </Link>
               ) : (
-                <div>
-                  <p className="text-gray-500 mb-4">
-                    No grades found. Create your first grade to get started.
-                  </p>
-                  <Link href={currentSection ? `/admin/forms-grades/new?section_id=${currentSection.id}` : "/admin/forms-grades/new"}>
-                    <Button>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add Grade
-                    </Button>
-                  </Link>
-                </div>
+                <Link href="/admin/forms-grades/new">
+                  <Button>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Create Form/Grade
+                  </Button>
+                </Link>
               )}
             </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {filteredFormsGrades.map((formGrade) => (
-            <Card 
-              key={formGrade.id} 
-              className={`hover:shadow-lg transition-all duration-200 border-l-4 ${
-                formGrade.is_active 
-                  ? 'border-l-blue-500' 
-                  : 'border-l-gray-400 opacity-75'
-              }`}
-            >
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className={`text-lg font-semibold ${
-                    !formGrade.is_active ? 'text-gray-600' : ''
-                  }`}>
-                    {formGrade.name}
-                  </CardTitle>
-                  <Badge variant={formGrade.is_active ? 'default' : 'secondary'}>
-                    {formGrade.is_active ? 'Active' : 'Inactive'}
-                  </Badge>
-                </div>
-                <CardDescription className="flex items-center justify-between">
-                  <span>Code: <span className={`font-mono font-medium ${
-                    formGrade.is_active ? 'text-blue-600' : 'text-gray-500'
-                  }`}>{formGrade.code}</span></span>
-                  <span className="text-xs text-gray-500">ID: {formGrade.id}</span>
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {/* School Level */}
-                  <div className="flex items-center space-x-2 text-sm">
-                    <GraduationCap className="h-4 w-4 text-gray-400" />
-                    <span className="text-gray-500">School Level:</span>
-                    <span className="font-medium">
-                      {formGrade.school_level?.name || `ID: ${formGrade.school_level_id}`}
-                    </span>
-                  </div>
-
-                  {/* Details */}
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-500">Display Order:</span>
-                      <div className="font-medium">{formGrade.display_order}</div>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">School Level ID:</span>
-                      <div className="font-medium">{formGrade.school_level_id}</div>
-                    </div>
-                  </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredFormsGrades
+                .sort((a, b) => a.display_order - b.display_order)
+                .map((formGrade) => {
+                  // Validate form/grade ID before rendering
+                  const hasValidId = isValidId(formGrade.id)
                   
-                  {/* Timestamps */}
-                  <div className="pt-2 border-t border-gray-100">
-                    <div className="grid grid-cols-1 gap-1 text-xs text-gray-500">
-                      <div>Created: {new Date(formGrade.created_at).toLocaleDateString()}</div>
-                      <div>Updated: {new Date(formGrade.updated_at).toLocaleDateString()}</div>
-                    </div>
-                  </div>
+                  if (!hasValidId) {
+                    console.error('Invalid form/grade ID in list:', formGrade)
+                  }
+                  
+                  return (
+                    <Card key={formGrade.id || `invalid-${Math.random()}`} className="border hover:border-blue-200 transition-colors">
+                      <CardContent className="p-6">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4">
+                            <div className="bg-blue-100 dark:bg-blue-900 p-3 rounded-lg">
+                              <GraduationCap className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                            </div>
+                            
+                            <div>
+                              <div className="flex items-center space-x-2 mb-1">
+                                <h3 className="font-semibold text-gray-900 dark:text-white">
+                                  {formGrade.name}
+                                </h3>
+                                <Badge variant="secondary" className="text-xs">
+                                  {formGrade.code}
+                                </Badge>
+                                <Badge 
+                                  variant={formGrade.is_active ? "default" : "secondary"}
+                                  className={formGrade.is_active ? "bg-green-100 text-green-800" : ""}
+                                >
+                                  {formGrade.is_active ? 'Active' : 'Inactive'}
+                                </Badge>
+                                {!hasValidId && (
+                                  <Badge variant="destructive" className="text-xs">
+                                    Invalid ID
+                                  </Badge>
+                                )}
+                              </div>
+                              
+                              <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
+                                <span>Order: {formGrade.display_order}</span>
+                                {formGrade.school_level && (
+                                  <span>{formGrade.school_level.name}</span>
+                                )}
+                                <span>ID: {formGrade.id}</span>
+                              </div>
+                            </div>
+                          </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                    <Button variant="outline" size="sm" onClick={() => handleView(formGrade.id)}>
-                      <Eye className="h-4 w-4 mr-1" />
-                      View
-                    </Button>
-                    <div className="flex items-center space-x-2">
-                      <Link href={`/admin/terms?form_grade_id=${formGrade.id}`} passHref legacyBehavior>
-                        <Button variant="outline" size="sm" as="a">
-                          Manage Terms
-                        </Button>
-                      </Link>
-                      <Button variant="outline" size="sm" onClick={() => handleEdit(formGrade.id)}>
-                        <Edit className="h-4 w-4 mr-1" />
-                        Edit
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDelete(formGrade.id, formGrade.name)}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-                      >
-                        <Trash2 className="h-4 w-4 mr-1" />
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {/* Summary Footer */}
-      {!loading && filteredFormsGrades.length > 0 && (
-        <Card className="mt-6">
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row items-center justify-between text-sm text-gray-600 dark:text-gray-400 gap-4">
-              <div className="flex items-center space-x-4">
-                <span>
-                  Showing {filteredFormsGrades.length} of {formsGrades.length} grades
-                </span>
-                {(searchQuery || statusFilter !== 'all' || schoolLevelFilter) && (
-                  <Badge variant="outline">
-                    {searchQuery && `Search: "${searchQuery}"`}
-                    {searchQuery && (statusFilter !== 'all' || schoolLevelFilter) && ' • '}
-                    {statusFilter !== 'all' && `Status: ${statusFilter}`}
-                    {statusFilter !== 'all' && schoolLevelFilter && ' • '}
-                    {schoolLevelFilter && `School Level: ${schoolLevels.find(sl => sl.id === schoolLevelFilter)?.name || schoolLevelFilter}`}
-                  </Badge>
-                )}
-              </div>
-              <div className="flex items-center space-x-4">
-                <span className="text-green-600">
-                  {activeCount} active
-                </span>
-                <span className="text-gray-400">•</span>
-                <span className="text-gray-500">
-                  {inactiveCount} inactive
-                </span>
-              </div>
+                          <div className="flex items-center space-x-2">
+                            {hasValidId ? (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => navigateToTerms(formGrade)}
+                                >
+                                  <Calendar className="mr-2 h-4 w-4" />
+                                  Terms
+                                </Button>
+                                
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => navigateToView(formGrade)}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                                
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => navigateToEdit(formGrade)}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setItemToDelete(formGrade)
+                                    setDeleteDialogOpen(true)
+                                  }}
+                                  className="text-red-600 hover:text-red-700"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
+                            ) : (
+                              <Alert className="w-48">
+                                <AlertCircle className="h-4 w-4" />
+                                <AlertDescription className="text-xs">
+                                  Invalid ID - cannot navigate
+                                </AlertDescription>
+                              </Alert>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
 
       {/* Delete Dialog */}
-      {itemToDelete && (
-        <DeleteDialog
-          open={deleteDialogOpen}
-          onOpenChange={setDeleteDialogOpen}
-          title="Delete Grade"
-          itemName={itemToDelete.name}
-          itemType="grade"
-          isActive={itemToDelete.is_active}
-          onConfirm={handleDeleteConfirm}
-          loading={deleteLoading}
-          showSoftDeleteOption={true}
-        />
-      )}
+      <DeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        onConfirm={handleDelete}
+        loading={deleteLoading}
+        title="Delete Form/Grade"
+        description={`Are you sure you want to delete "${itemToDelete?.name}"? This action can be undone by reactivating it later.`}
+        itemName={itemToDelete?.name || ''}
+      />
     </div>
   )
-} 
+}
