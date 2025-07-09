@@ -4,441 +4,274 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { 
-  ArrowLeft, 
-  Edit, 
-  Trash2, 
-  BookOpen,
-  Calendar,
-  GraduationCap,
-  Target,
+  BookOpen, 
+  Search, 
+  Plus, 
+  ArrowLeft,
   Clock,
-  Plus,
+  Target,
   Eye,
-  List,
-  PlayCircle,
-  CheckSquare,
-  BookMarked
+  Edit,
+  FileText
 } from 'lucide-react'
 import Link from 'next/link'
-import { topicApi, subtopicApi } from '@/lib/api'
+import { subjectApi, topicApi } from '@/lib/api'
+
+interface Subject {
+  id: number
+  name: string
+  code: string
+  color: string
+  term: {
+    name: string
+    form_grade: {
+      name: string
+      school_level: {
+        name: string
+      }
+    }
+  }
+}
 
 interface Topic {
   id: number
   title: string
   description: string
-  learning_objectives: string[]
   duration_weeks: number
+  learning_objectives: string[]
   display_order: number
-  subject_id: number
-  subject: {
-    id: number
-    name: string
-    code: string
-    color: string
-    term: {
-      id: number
-      name: string
-      code: string
-      form_grade: {
-        id: number
-        name: string
-        code: string
-        school_level: {
-          id: number
-          name: string
-        }
-      }
-    }
-  }
-  subtopics: Array<{
-    id: number
-    title: string
-    content: string
-    duration_lessons: number
-    activities: any[]
-    assessment_criteria: any[]
-    resources: any[]
-    is_active: boolean
-  }>
   is_active: boolean
-  created_at: string
-  updated_at: string
+  subtopics_count: number
 }
 
-const TopicDetailsPage = () => {
+const SubjectTopicsPage = () => {
   const params = useParams()
   const router = useRouter()
-  const topicId = parseInt(params.id as string)
+  const subjectId = parseInt(params.id as string)
   
-  const [topic, setTopic] = useState<Topic | null>(null)
+  const [subject, setSubject] = useState<Subject | null>(null)
+  const [topics, setTopics] = useState<Topic[]>([])
+  const [filteredTopics, setFilteredTopics] = useState<Topic[]>([])
   const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
 
   useEffect(() => {
-    fetchTopic()
-  }, [topicId])
+    if (subjectId) {
+      fetchSubject()
+      fetchTopics()
+    }
+  }, [subjectId])
 
-  const fetchTopic = async () => {
+  useEffect(() => {
+    filterTopics()
+  }, [topics, searchTerm, statusFilter])
+
+  const fetchSubject = async () => {
     try {
-      const response = await topicApi.getById(topicId)
-      setTopic(response.data)
+      const response = await subjectApi.get(subjectId)
+      setSubject(response.data)
     } catch (error) {
-      console.error('Error fetching topic:', error)
+      console.error('Error fetching subject:', error)
+    }
+  }
+
+  const fetchTopics = async () => {
+    try {
+      const response = await topicApi.getBySubject(subjectId)
+      setTopics(response.data || [])
+    } catch (error) {
+      console.error('Error fetching topics:', error)
     } finally {
       setLoading(false)
     }
   }
 
-  const handleDelete = async () => {
-    if (confirm('Are you sure you want to delete this topic? This action cannot be undone.')) {
-      try {
-        await topicApi.delete(topicId)
-        router.push('/admin/topics')
-      } catch (error) {
-        console.error('Error deleting topic:', error)
-        alert('Failed to delete topic. Please try again.')
-      }
+  const filterTopics = () => {
+    let filtered = topics
+
+    if (searchTerm) {
+      filtered = filtered.filter(topic => 
+        topic.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        topic.description.toLowerCase().includes(searchTerm.toLowerCase())
+      )
     }
+
+    if (statusFilter === 'active') {
+      filtered = filtered.filter(topic => topic.is_active)
+    } else if (statusFilter === 'inactive') {
+      filtered = filtered.filter(topic => !topic.is_active)
+    }
+
+    setFilteredTopics(filtered.sort((a, b) => a.display_order - b.display_order))
+  }
+
+  const handleTopicClick = (topicId: number) => {
+    router.push(`/admin/topics/${topicId}/subtopics`)
   }
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      </div>
-    )
-  }
-
-  if (!topic) {
-    return (
-      <div className="text-center py-12">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">Topic Not Found</h2>
-        <Link href="/admin/topics">
-          <Button>Back to Topics</Button>
-        </Link>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
       </div>
     )
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 p-6">
+    <div className="container mx-auto p-6 max-w-7xl">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <Link href="/admin/topics">
-            <Button variant="outline" size="sm">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Topics
-            </Button>
-          </Link>
-          <div className="flex items-center space-x-4">
-            <div 
-              className="w-16 h-16 rounded-xl flex items-center justify-center text-white text-2xl font-bold shadow-lg"
-              style={{ backgroundColor: topic.subject?.color || '#3B82F6' }}
-            >
-              <Target className="w-8 h-8" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">{topic.title}</h1>
-              <p className="text-gray-600">Subject: {topic.subject?.name}</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="flex items-center space-x-2">
-          <Badge variant={topic.is_active ? "default" : "secondary"} className="text-sm">
-            {topic.is_active ? 'Active' : 'Inactive'}
-          </Badge>
-          <Link href={`/admin/topics/${topic.id}/edit`}>
-            <Button variant="outline">
-              <Edit className="w-4 h-4 mr-2" />
-              Edit
-            </Button>
-          </Link>
-          <Button variant="destructive" onClick={handleDelete}>
-            <Trash2 className="w-4 h-4 mr-2" />
-            Delete
+      <div className="mb-8">
+        <div className="flex items-center space-x-4 mb-4">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/admin/subjects">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Subjects
+            </Link>
           </Button>
         </div>
+        
+        {subject && (
+          <div className="flex items-center space-x-4">
+            <div 
+              className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold text-lg"
+              style={{ backgroundColor: subject.color }}
+            >
+              {subject.code}
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">{subject.name}</h1>
+              <p className="text-gray-600">
+                {subject.term.form_grade.name} • {subject.term.name} • {subject.term.form_grade.school_level.name}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Topic Details */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Basic Information */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Topic Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-gray-500">Description</label>
-                <p className="mt-1 text-gray-900">
-                  {topic.description || 'No description provided'}
-                </p>
-              </div>
-              
-              <Separator />
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Duration</label>
-                  <p className="mt-1 text-gray-900">{topic.duration_weeks} weeks</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Display Order</label>
-                  <p className="mt-1 text-gray-900">{topic.display_order}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      {/* Controls */}
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
+        <div className="flex-1 relative">
+          <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+          <Input
+            placeholder="Search topics..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-full md:w-48">
+            <SelectValue placeholder="Filter by status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Topics</SelectItem>
+            <SelectItem value="active">Active Only</SelectItem>
+            <SelectItem value="inactive">Inactive Only</SelectItem>
+          </SelectContent>
+        </Select>
 
-          {/* Learning Objectives */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Target className="w-5 h-5" />
-                <span>Learning Objectives</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {topic.learning_objectives && topic.learning_objectives.length > 0 ? (
-                <ul className="space-y-2">
-                  {topic.learning_objectives.map((objective, index) => (
-                    <li key={index} className="flex items-start space-x-2">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                      <p className="text-gray-900">{objective}</p>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-gray-500">No learning objectives defined</p>
-              )}
-            </CardContent>
-          </Card>
+        <Button asChild>
+          <Link href={`/admin/topics/new?subject_id=${subjectId}`}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Topic
+          </Link>
+        </Button>
+      </div>
 
-          {/* Subtopics Section */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center space-x-2">
-                    <List className="w-5 h-5" />
-                    <span>Subtopics ({topic.subtopics?.length || 0})</span>
-                  </CardTitle>
-                  <CardDescription>
-                    Detailed lesson content and activities
-                  </CardDescription>
-                </div>
-                <Link href={`/admin/subtopics/new?topic_id=${topic.id}`}>
-                  <Button size="sm" className="bg-green-600 hover:bg-green-700">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Subtopic
-                  </Button>
-                </Link>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {topic.subtopics && topic.subtopics.length > 0 ? (
-                <div className="space-y-3">
-                  {topic.subtopics.map((subtopic) => (
-                    <div key={subtopic.id} className="border rounded-lg p-4 hover:bg-gray-50">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium">{subtopic.title}</h4>
-                        <Badge variant={subtopic.is_active ? "default" : "secondary"} className="text-xs">
-                          {subtopic.is_active ? 'Active' : 'Inactive'}
-                        </Badge>
-                      </div>
-                      
-                      <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-                        {subtopic.content || 'No content description'}
-                      </p>
-                      
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-gray-500 mb-3">
-                        <div className="flex items-center space-x-1">
-                          <Clock className="w-3 h-3" />
-                          <span>{subtopic.duration_lessons} lessons</span>
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          <PlayCircle className="w-3 h-3" />
-                          <span>{subtopic.activities?.length || 0} activities</span>
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          <CheckSquare className="w-3 h-3" />
-                          <span>{subtopic.assessment_criteria?.length || 0} assessments</span>
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          <BookMarked className="w-3 h-3" />
-                          <span>{subtopic.resources?.length || 0} resources</span>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center justify-end space-x-2">
-                        <Link href={`/admin/subtopics/${subtopic.id}`}>
-                          <Button variant="outline" size="sm">
-                            <Eye className="w-4 h-4 mr-1" />
-                            View
-                          </Button>
-                        </Link>
-                        <Link href={`/admin/subtopics/${subtopic.id}/edit`}>
-                          <Button variant="outline" size="sm">
-                            <Edit className="w-4 h-4 mr-1" />
-                            Edit
-                          </Button>
-                        </Link>
-                      </div>
+      {/* Topics List */}
+      {filteredTopics.length === 0 ? (
+        <Card>
+          <CardContent className="text-center py-12">
+            <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Topics Found</h3>
+            <p className="text-gray-600 mb-6">
+              {searchTerm ? 'No topics match your search.' : 'Start by adding your first topic.'}
+            </p>
+            <Button asChild>
+              <Link href={`/admin/topics/new?subject_id=${subjectId}`}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add First Topic
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4">
+          {filteredTopics.map((topic) => (
+            <Card 
+              key={topic.id} 
+              className="hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() => handleTopicClick(topic.id)}
+            >
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-3 mb-2">
+                      <CardTitle className="text-lg">{topic.title}</CardTitle>
+                      <Badge variant={topic.is_active ? "default" : "secondary"}>
+                        {topic.is_active ? 'Active' : 'Inactive'}
+                      </Badge>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <List className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Subtopics Yet</h3>
-                  <p className="text-gray-600 mb-4">
-                    Start building detailed lesson content by adding subtopics
-                  </p>
-                  <Link href={`/admin/subtopics/new?topic_id=${topic.id}`}>
-                    <Button>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add First Subtopic
+                    <CardDescription className="text-sm">
+                      {topic.description}
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        router.push(`/admin/topics/${topic.id}/edit`)
+                      }}
+                    >
+                      <Edit className="h-4 w-4" />
                     </Button>
-                  </Link>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        router.push(`/admin/topics/${topic.id}`)
+                      }}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </CardHeader>
+              
+              <CardContent>
+                <div className="flex items-center justify-between text-sm text-gray-600">
+                  <div className="flex items-center space-x-4">
+                    <div className="flex items-center space-x-1">
+                      <Clock className="h-4 w-4" />
+                      <span>{topic.duration_weeks} weeks</span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <FileText className="h-4 w-4" />
+                      <span>{topic.subtopics_count} subtopics</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <Target className="h-4 w-4" />
+                    <span>{topic.learning_objectives.length} objectives</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
-
-        {/* Right Column - Context & Actions */}
-        <div className="space-y-6">
-          {/* Hierarchy Context */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <BookOpen className="w-5 h-5" />
-                <span>Context</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <div className="flex items-center space-x-2 text-sm">
-                  <GraduationCap className="w-4 h-4 text-gray-400" />
-                  <span className="text-gray-600">School Level:</span>
-                  <span className="font-medium">{topic.subject?.term?.form_grade?.school_level?.name}</span>
-                </div>
-                
-                <div className="flex items-center space-x-2 text-sm">
-                  <GraduationCap className="w-4 h-4 text-gray-400" />
-                  <span className="text-gray-600">Form/Grade:</span>
-                  <span className="font-medium">{topic.subject?.term?.form_grade?.name}</span>
-                </div>
-                
-                <div className="flex items-center space-x-2 text-sm">
-                  <Calendar className="w-4 h-4 text-gray-400" />
-                  <span className="text-gray-600">Term:</span>
-                  <span className="font-medium">{topic.subject?.term?.name}</span>
-                </div>
-                
-                <div className="flex items-center space-x-2 text-sm">
-                  <BookOpen className="w-4 h-4 text-gray-400" />
-                  <span className="text-gray-600">Subject:</span>
-                  <span className="font-medium">{topic.subject?.name}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Topic Statistics */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Statistics</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-600">{topic.subtopics?.length || 0}</div>
-                  <div className="text-sm text-gray-600">Subtopics</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600">
-                    {topic.subtopics?.reduce((sum, s) => sum + s.duration_lessons, 0) || 0}
-                  </div>
-                  <div className="text-sm text-gray-600">Total Lessons</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-orange-600">
-                    {topic.subtopics?.reduce((sum, s) => sum + (s.activities?.length || 0), 0) || 0}
-                  </div>
-                  <div className="text-sm text-gray-600">Activities</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-purple-600">
-                    {topic.learning_objectives?.length || 0}
-                  </div>
-                  <div className="text-sm text-gray-600">Objectives</div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Quick Actions */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Link href={`/admin/subtopics/new?topic_id=${topic.id}`} className="block">
-                <Button variant="outline" className="w-full justify-start">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Subtopic
-                </Button>
-              </Link>
-              
-              <Link href={`/admin/subtopics?topic_id=${topic.id}`} className="block">
-                <Button variant="outline" className="w-full justify-start">
-                  <Eye className="w-4 h-4 mr-2" />
-                  View All Subtopics
-                </Button>
-              </Link>
-              
-              <Link href={`/admin/topics/${topic.id}/edit`} className="block">
-                <Button variant="outline" className="w-full justify-start">
-                  <Edit className="w-4 h-4 mr-2" />
-                  Edit Topic
-                </Button>
-              </Link>
-              
-              <Link href={`/admin/topics?subject_id=${topic.subject_id}`} className="block">
-                <Button variant="outline" className="w-full justify-start">
-                  <BookOpen className="w-4 h-4 mr-2" />
-                  View Subject Topics
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-
-          {/* Metadata */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Metadata</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div>
-                <span className="text-gray-500">Created:</span>
-                <span className="ml-2">{new Date(topic.created_at).toLocaleDateString()}</span>
-              </div>
-              <div>
-                <span className="text-gray-500">Updated:</span>
-                <span className="ml-2">{new Date(topic.updated_at).toLocaleDateString()}</span>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      )}
     </div>
   )
 }
 
-export default TopicDetailsPage
+export default SubjectTopicsPage
