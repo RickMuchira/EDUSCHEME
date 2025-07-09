@@ -208,6 +208,24 @@ const SubjectsManagePage = () => {
     }
   }
 
+  // 🎯 Navigate to Topics - Fixed this function
+  const handleTopicsNavigation = (subjectId: number) => {
+    if (!isValidId(subjectId)) {
+      toast.error('Invalid subject ID')
+      return
+    }
+    router.push(`/admin/topics?subject_id=${subjectId}`)
+  }
+
+  // 🎯 Navigate to Edit - Fixed this function
+  const handleEditNavigation = (subjectId: number) => {
+    if (!isValidId(subjectId)) {
+      toast.error('Invalid subject ID')
+      return
+    }
+    router.push(`/admin/subjects/${subjectId}/edit`)
+  }
+
   // Filter subjects based on active tab
   const filteredSubjects = subjects.filter(subject => {
     if (activeTab === 'active') return subject.is_active
@@ -380,6 +398,16 @@ const SubjectsManagePage = () => {
         </Card>
       )}
 
+      {/* Error Alert */}
+      {error && (
+        <Alert className="mb-6 border-red-200 bg-red-50">
+          <AlertCircle className="h-4 w-4 text-red-600" />
+          <AlertDescription className="text-red-800">
+            {error}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Subjects List */}
       <Card>
         <CardHeader>
@@ -400,8 +428,8 @@ const SubjectsManagePage = () => {
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-3 mb-6">
-              <TabsTrigger value="active">Active ({filteredSubjects.filter(s => s.is_active).length})</TabsTrigger>
-              <TabsTrigger value="inactive">Inactive ({filteredSubjects.filter(s => !s.is_active).length})</TabsTrigger>
+              <TabsTrigger value="active">Active ({subjects.filter(s => s.is_active).length})</TabsTrigger>
+              <TabsTrigger value="inactive">Inactive ({subjects.filter(s => !s.is_active).length})</TabsTrigger>
               <TabsTrigger value="all">All ({subjects.length})</TabsTrigger>
             </TabsList>
 
@@ -492,25 +520,29 @@ const SubjectsManagePage = () => {
                           </div>
 
                           <div className="flex items-center space-x-2">
+                            {/* 🎯 FIXED: Topics Button - Now works properly */}
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => {/* Navigate to topics */}}
+                              onClick={() => handleTopicsNavigation(subject.id)}
                               disabled={!isValidId(subject.id)}
+                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                             >
                               <BookOpen className="mr-2 h-4 w-4" />
                               Topics
                             </Button>
                             
+                            {/* 🎯 FIXED: Edit Button - Now works properly */}
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => {/* Navigate to edit */}}
+                              onClick={() => handleEditNavigation(subject.id)}
                               disabled={!isValidId(subject.id)}
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
                             
+                            {/* Status Toggle Button */}
                             <Button
                               variant="outline"
                               size="sm"
@@ -531,6 +563,7 @@ const SubjectsManagePage = () => {
                               )}
                             </Button>
                             
+                            {/* Delete Button */}
                             <Button
                               variant="outline"
                               size="sm"

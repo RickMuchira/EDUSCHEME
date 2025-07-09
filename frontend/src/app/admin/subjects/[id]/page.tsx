@@ -1,3 +1,6 @@
+// File: frontend/src/app/admin/subjects/[id]/topics/page.tsx
+// Direct subject-specific topics page - no need to select subject again
+
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -5,407 +8,406 @@ import { useParams, useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { 
-  ArrowLeft, 
-  Edit, 
-  Trash2, 
-  Calendar,
-  GraduationCap,
-  School,
-  Palette,
-  Sparkles,
+  BookOpen, 
+  Search, 
+  Plus, 
+  ArrowLeft,
   Clock,
-  Plus,
+  Target,
   Eye,
-  BookOpen
+  Edit,
+  Trash2,
+  FileText,
+  Users,
+  AlertCircle,
+  Loader2,
+  RefreshCw
 } from 'lucide-react'
 import Link from 'next/link'
-import { subjectApi } from '@/lib/api'
+import { subjectApi, topicApi } from '@/lib/api'
+import { toast } from 'sonner'
 
 interface Subject {
   id: number
   name: string
   code: string
-  description: string
   color: string
-  icon: string
-  animation_type: string
-  display_order: number
-  term_id: number
+  description: string
   term: {
     id: number
     name: string
     code: string
-    start_date: string
-    end_date: string
     form_grade: {
       id: number
       name: string
-      code: string
       school_level: {
         id: number
         name: string
       }
     }
   }
-  topics: Array<{
-    id: number
-    title: string
-    description: string
-    duration_weeks: number
-    is_active: boolean
-  }>
   is_active: boolean
+}
+
+interface Topic {
+  id: number
+  title: string
+  description: string
+  duration_weeks: number
+  learning_objectives: string[]
+  display_order: number
+  is_active: boolean
+  subtopics_count?: number
   created_at: string
   updated_at: string
 }
 
-const SubjectDetailsPage = () => {
+const SubjectTopicsPage = () => {
   const params = useParams()
   const router = useRouter()
   const subjectId = parseInt(params.id as string)
   
   const [subject, setSubject] = useState<Subject | null>(null)
+  const [topics, setTopics] = useState<Topic[]>([])
+  const [filteredTopics, setFilteredTopics] = useState<Topic[]>([])
   const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [activeTab, setActiveTab] = useState('active')
 
   useEffect(() => {
-    fetchSubject()
+    if (subjectId) {
+      fetchSubject()
+      fetchTopics()
+    }
   }, [subjectId])
+
+  useEffect(() => {
+    filterTopics()
+  }, [topics, searchTerm, statusFilter, activeTab])
 
   const fetchSubject = async () => {
     try {
       const response = await subjectApi.getById(subjectId)
-      setSubject(response.data)
-    } catch (error) {
+      if (response.success && response.data) {
+        setSubject(response.data)
+      } else {
+        throw new Error(response.message || 'Subject not found')
+      }
+    } catch (error: any) {
       console.error('Error fetching subject:', error)
+      toast.error('Failed to load subject details')
+    }
+  }
+
+  const fetchTopics = async () => {
+    try {
+      const response = await topicApi.getBySubject(subjectId)
+      if (response.success && response.data) {
+        setTopics(response.data)
+      } else {
+        throw new Error(response.message || 'Failed to load topics')
+      }
+    } catch (error: any) {
+      console.error('Error fetching topics:', error)
+      toast.error('Failed to load topics')
     } finally {
       setLoading(false)
     }
   }
 
-  const handleDelete = async () => {
-    if (confirm('Are you sure you want to delete this subject? This action cannot be undone.')) {
+  const filterTopics = () => {
+    let filtered = topics
+
+    // Filter by search term
+    if (searchTerm) {
+      filtered = filtered.filter(topic => 
+        topic.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        topic.description?.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    }
+
+    // Filter by status
+    if (activeTab === 'active') {
+      filtered = filtered.filter(topic => topic.is_active)
+    } else if (activeTab === 'inactive') {
+      filtered = filtered.filter(topic => !topic.is_active)
+    }
+
+    setFilteredTopics(filtered.sort((a, b) => a.display_order - b.display_order))
+  }
+
+  const handleTopicClick = (topicId: number) => {
+    router.push(`/admin/topics/${topicId}/subtopics`)
+  }
+
+  const handleDeleteTopic = async (topicId: number) => {
+    if (confirm('Are you sure you want to delete this topic?')) {
       try {
-        await subjectApi.delete(subjectId)
-        router.push('/admin/subjects')
-      } catch (error) {
-        console.error('Error deleting subject:', error)
-        alert('Failed to delete subject. Please try again.')
+        const response = await topicApi.delete(topicId)
+        if (response.success) {
+          toast.success('Topic deleted successfully')
+          fetchTopics() // Refresh the list
+        } else {
+          throw new Error(response.message || 'Failed to delete topic')
+        }
+      } catch (error: any) {
+        console.error('Error deleting topic:', error)
+        toast.error('Failed to delete topic')
       }
     }
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      <div className="container mx-auto py-6 px-4">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+            <p className="text-gray-600">Loading topics...</p>
+          </div>
+        </div>
       </div>
     )
   }
 
   if (!subject) {
     return (
-      <div className="text-center py-12">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">Subject Not Found</h2>
-        <Link href="/admin/subjects">
-          <Button>Back to Subjects</Button>
-        </Link>
+      <div className="container mx-auto py-6 px-4">
+        <div className="text-center py-12">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Subject Not Found</h2>
+          <p className="text-gray-600 mb-6">The subject you're looking for doesn't exist or has been deleted.</p>
+          <Link href="/admin/subjects">
+            <Button>Back to Subjects</Button>
+          </Link>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 p-6">
+    <div className="container mx-auto py-6 px-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-4">
-          <Link href="/admin/subjects">
-            <Button variant="outline" size="sm">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Subjects
+          <Link href={`/admin/subjects?term_id=${subject.term.id}`}>
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <div className="flex items-center space-x-4">
-            <div 
-              className="w-16 h-16 rounded-xl flex items-center justify-center text-white text-2xl font-bold shadow-lg"
-              style={{ backgroundColor: subject.color }}
-            >
-              {subject.code.slice(0, 2)}
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">{subject.name}</h1>
-              <p className="text-gray-600">Code: {subject.code}</p>
-            </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Topics for {subject.name}
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400">
+              {subject.term.form_grade.name} • {subject.term.name} • {subject.code}
+            </p>
           </div>
         </div>
         
         <div className="flex items-center space-x-2">
-          <Badge variant={subject.is_active ? "default" : "secondary"} className="text-sm">
-            {subject.is_active ? 'Active' : 'Inactive'}
-          </Badge>
-          <Link href={`/admin/subjects/${subject.id}/edit`}>
-            <Button variant="outline">
-              <Edit className="w-4 h-4 mr-2" />
-              Edit
+          <Button variant="outline" size="icon" onClick={() => fetchTopics()}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Link href={`/admin/topics/new?subject_id=${subject.id}`}>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Topic
             </Button>
           </Link>
-          <Button variant="destructive" onClick={handleDelete}>
-            <Trash2 className="w-4 h-4 mr-2" />
-            Delete
-          </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Subject Details */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Basic Information */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Subject Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
+      {/* Subject Info Card */}
+      <Card className="mb-6">
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div 
+                className="p-3 rounded-lg"
+                style={{ 
+                  backgroundColor: subject.color ? `${subject.color}20` : '#f3f4f6',
+                  border: `2px solid ${subject.color || '#e5e7eb'}`
+                }}
+              >
+                <BookOpen 
+                  className="h-6 w-6"
+                  style={{ color: subject.color || '#6b7280' }}
+                />
+              </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Description</label>
-                <p className="mt-1 text-gray-900">
-                  {subject.description || 'No description provided'}
+                <div className="flex items-center space-x-2 mb-1">
+                  <h3 className="font-semibold text-gray-900 dark:text-white">
+                    {subject.name}
+                  </h3>
+                  <Badge variant="secondary" className="text-xs">
+                    {subject.code}
+                  </Badge>
+                  <Badge variant={subject.is_active ? "default" : "secondary"}>
+                    {subject.is_active ? 'Active' : 'Inactive'}
+                  </Badge>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {subject.description}
                 </p>
               </div>
-              
-              <Separator />
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Display Order</label>
-                  <p className="mt-1 text-gray-900">{subject.display_order}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Animation Type</label>
-                  <p className="mt-1 text-gray-900 capitalize">{subject.animation_type}</p>
-                </div>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                {topics.length}
               </div>
-            </CardContent>
-          </Card>
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                Total Topics
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-          {/* Topics Section */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center space-x-2">
-                    <BookOpen className="w-5 h-5" />
-                    <span>Topics ({subject.topics?.length || 0})</span>
-                  </CardTitle>
-                  <CardDescription>
-                    Curriculum topics for this subject
-                  </CardDescription>
-                </div>
-                <Link href={`/admin/topics/new?subject_id=${subject.id}`}>
-                  <Button size="sm">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Topic
-                  </Button>
-                </Link>
+      {/* Topics List */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center">
+              <FileText className="mr-2 h-5 w-5" />
+              Topics
+            </span>
+            <div className="flex items-center space-x-2">
+              <div className="relative">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Search topics..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-8 w-64"
+                />
               </div>
-            </CardHeader>
-            <CardContent>
-              {subject.topics && subject.topics.length > 0 ? (
-                <div className="space-y-3">
-                  {subject.topics.map((topic) => (
-                    <div key={topic.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
-                      <div className="flex-1">
-                        <h4 className="font-medium">{topic.title}</h4>
-                        <p className="text-sm text-gray-500 line-clamp-1">
-                          {topic.description || 'No description'}
-                        </p>
-                        <div className="flex items-center space-x-4 mt-1">
-                          <span className="text-xs text-gray-400 flex items-center">
-                            <Clock className="w-3 h-3 mr-1" />
-                            {topic.duration_weeks} weeks
-                          </span>
-                          <Badge variant={topic.is_active ? "default" : "secondary"} className="text-xs">
-                            {topic.is_active ? 'Active' : 'Inactive'}
-                          </Badge>
-                        </div>
-                      </div>
-                      <Link href={`/admin/topics/${topic.id}`}>
-                        <Button variant="outline" size="sm">
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                      </Link>
-                    </div>
-                  ))}
+            </div>
+          </CardTitle>
+          <CardDescription>
+            Manage topics and learning objectives for {subject.name}
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid w-full grid-cols-3 mb-6">
+              <TabsTrigger value="active">Active ({topics.filter(t => t.is_active).length})</TabsTrigger>
+              <TabsTrigger value="inactive">Inactive ({topics.filter(t => !t.is_active).length})</TabsTrigger>
+              <TabsTrigger value="all">All ({topics.length})</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value={activeTab}>
+              {filteredTopics.length === 0 ? (
+                <div className="text-center py-8">
+                  <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                    {searchTerm ? 'No topics found' : `No ${activeTab === 'all' ? '' : activeTab} topics yet`}
+                  </h3>
+                  <p className="text-gray-600 dark:text-gray-400 mb-4">
+                    {searchTerm 
+                      ? 'Try adjusting your search terms'
+                      : `Create your first topic for ${subject.name}`
+                    }
+                  </p>
+                  {!searchTerm && (
+                    <Link href={`/admin/topics/new?subject_id=${subject.id}`}>
+                      <Button>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Create First Topic
+                      </Button>
+                    </Link>
+                  )}
                 </div>
               ) : (
-                <div className="text-center py-8">
-                  <BookOpen className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Topics Yet</h3>
-                  <p className="text-gray-600 mb-4">
-                    Start building your curriculum by adding topics to this subject
-                  </p>
-                  <Link href={`/admin/topics/new?subject_id=${subject.id}`}>
-                    <Button>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add First Topic
-                    </Button>
-                  </Link>
+                <div className="space-y-4">
+                  {filteredTopics.map((topic) => (
+                    <Card key={topic.id} className="border hover:border-blue-200 transition-colors">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4">
+                            <div className="bg-blue-100 p-2 rounded-lg">
+                              <Target className="h-5 w-5 text-blue-600" />
+                            </div>
+                            <div>
+                              <div className="flex items-center space-x-2 mb-1">
+                                <h3 className="font-semibold text-gray-900 dark:text-white">
+                                  {topic.title}
+                                </h3>
+                                <Badge variant={topic.is_active ? "default" : "secondary"}>
+                                  {topic.is_active ? 'Active' : 'Inactive'}
+                                </Badge>
+                              </div>
+                              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                                {topic.description}
+                              </p>
+                              <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
+                                <span className="flex items-center">
+                                  <Clock className="mr-1 h-4 w-4" />
+                                  {topic.duration_weeks} week{topic.duration_weeks !== 1 ? 's' : ''}
+                                </span>
+                                <span className="flex items-center">
+                                  <Target className="mr-1 h-4 w-4" />
+                                  {topic.learning_objectives?.length || 0} objectives
+                                </span>
+                                {topic.subtopics_count !== undefined && (
+                                  <span className="flex items-center">
+                                    <FileText className="mr-1 h-4 w-4" />
+                                    {topic.subtopics_count} subtopics
+                                  </span>
+                                )}
+                                <span className="flex items-center">
+                                  <Users className="mr-1 h-4 w-4" />
+                                  Order: {topic.display_order}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleTopicClick(topic.id)}
+                              className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                            >
+                              <FileText className="mr-2 h-4 w-4" />
+                              Subtopics
+                            </Button>
+                            
+                            <Link href={`/admin/topics/${topic.id}/edit`}>
+                              <Button variant="outline" size="sm">
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </Link>
+                            
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDeleteTopic(topic.id)}
+                              className="text-red-600 hover:text-red-700"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right Column - Context & Styling */}
-        <div className="space-y-6">
-          {/* Hierarchy Context */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <School className="w-5 h-5" />
-                <span>Context</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <div className="flex items-center space-x-2 text-sm">
-                  <School className="w-4 h-4 text-gray-400" />
-                  <span className="text-gray-600">School Level:</span>
-                  <span className="font-medium">{subject.term.form_grade.school_level.name}</span>
-                </div>
-                
-                <div className="flex items-center space-x-2 text-sm">
-                  <GraduationCap className="w-4 h-4 text-gray-400" />
-                  <span className="text-gray-600">Form/Grade:</span>
-                  <span className="font-medium">{subject.term.form_grade.name}</span>
-                </div>
-                
-                <div className="flex items-center space-x-2 text-sm">
-                  <Calendar className="w-4 h-4 text-gray-400" />
-                  <span className="text-gray-600">Term:</span>
-                  <span className="font-medium">{subject.term.name}</span>
-                </div>
-              </div>
-              
-              <Separator />
-              
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-500">Term Duration</label>
-                <div className="text-sm text-gray-900">
-                  {new Date(subject.term.start_date).toLocaleDateString()} - 
-                  {new Date(subject.term.end_date).toLocaleDateString()}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Visual Styling */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Palette className="w-5 h-5" />
-                <span>Visual Styling</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Color</label>
-                  <div className="flex items-center space-x-3 mt-1">
-                    <div 
-                      className="w-8 h-8 rounded-lg border border-gray-300"
-                      style={{ backgroundColor: subject.color }}
-                    />
-                    <span className="text-sm font-mono">{subject.color}</span>
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Icon</label>
-                  <p className="mt-1 text-sm text-gray-900 capitalize">{subject.icon}</p>
-                </div>
-                
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Animation</label>
-                  <div className="flex items-center space-x-2 mt-1">
-                    <Sparkles className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-900 capitalize">{subject.animation_type}</span>
-                  </div>
-                </div>
-              </div>
-              
-              <Separator />
-              
-              {/* Preview Card */}
-              <div>
-                <label className="text-sm font-medium text-gray-500 mb-2 block">Preview</label>
-                <div className="p-3 border rounded-lg bg-gray-50">
-                  <div className="flex items-center space-x-3">
-                    <div 
-                      className="w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-bold"
-                      style={{ backgroundColor: subject.color }}
-                    >
-                      {subject.code.slice(0, 2)}
-                    </div>
-                    <div>
-                      <div className="font-medium text-sm">{subject.name}</div>
-                      <div className="text-xs text-gray-500">{subject.code}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Quick Actions */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Link href={`/admin/topics/new?subject_id=${subject.id}`} className="block">
-                <Button variant="outline" className="w-full justify-start">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Topic
-                </Button>
-              </Link>
-              
-              <Link href={`/admin/subjects/${subject.id}/edit`} className="block">
-                <Button variant="outline" className="w-full justify-start">
-                  <Edit className="w-4 h-4 mr-2" />
-                  Edit Subject
-                </Button>
-              </Link>
-              
-              <Link href={`/admin/subjects?term_id=${subject.term_id}`} className="block">
-                <Button variant="outline" className="w-full justify-start">
-                  <Eye className="w-4 h-4 mr-2" />
-                  View All in Term
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-
-          {/* Metadata */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Metadata</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div>
-                <span className="text-gray-500">Created:</span>
-                <span className="ml-2">{new Date(subject.created_at).toLocaleDateString()}</span>
-              </div>
-              <div>
-                <span className="text-gray-500">Updated:</span>
-                <span className="ml-2">{new Date(subject.updated_at).toLocaleDateString()}</span>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
     </div>
   )
 }
 
-export default SubjectDetailsPage
+export default SubjectTopicsPage
