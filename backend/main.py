@@ -751,6 +751,26 @@ def list_subjects(
         print(f"Error listing subjects: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.get("/api/v1/admin/subjects/{subject_id}", response_model=schemas.ResponseWrapper)
+def get_subject_by_id(
+    subject_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """Get a specific subject by ID"""
+    try:
+        subject = crud.subject.get(db=db, id=subject_id)
+        if not subject:
+            raise HTTPException(status_code=404, detail="Subject not found")
+        return schemas.ResponseWrapper(
+            message="Subject retrieved successfully",
+            data=schemas.Subject.model_validate(subject)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error fetching subject {subject_id}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
 @app.put("/api/v1/admin/subjects/{subject_id}", response_model=schemas.ResponseWrapper)
 def update_subject(
     subject_update: schemas.SubjectUpdate,
@@ -869,6 +889,77 @@ def get_topic(
             message="Topic retrieved successfully",
             data=schemas.Topic.model_validate(topic)
         )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/topics/{topic_id}/subtopics", response_model=schemas.ResponseWrapper)
+def get_subtopics_by_topic(
+    topic_id: int = Path(..., gt=0),
+    include_inactive: bool = Query(False, description="Include inactive subtopics"),
+    db: Session = Depends(get_db)
+):
+    """Get all subtopics for a specific topic"""
+    try:
+        topic = crud.topic.get(db=db, id=topic_id)
+        if not topic:
+            raise HTTPException(status_code=404, detail="Topic not found")
+        if include_inactive:
+            subtopics = db.query(models.Subtopic).filter(
+                models.Subtopic.topic_id == topic_id
+            ).order_by(models.Subtopic.display_order).all()
+        else:
+            subtopics = crud.subtopic.get_by_topic(db=db, topic_id=topic_id)
+        return schemas.ResponseWrapper(
+            message="Subtopics retrieved successfully",
+            data=[schemas.Subtopic.model_validate(st) for st in subtopics],
+            total=len(subtopics)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/api/v1/admin/subtopics/{subtopic_id}", response_model=schemas.ResponseWrapper)
+def update_subtopic(
+    subtopic_update: schemas.SubtopicUpdate,
+    subtopic_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """Update a subtopic"""
+    try:
+        db_subtopic = crud.subtopic.get(db=db, id=subtopic_id)
+        if not db_subtopic:
+            raise HTTPException(status_code=404, detail="Subtopic not found")
+        updated_subtopic = crud.subtopic.update(
+            db=db, db_obj=db_subtopic, obj_in=subtopic_update
+        )
+        return schemas.ResponseWrapper(
+            message="Subtopic updated successfully",
+            data=schemas.Subtopic.model_validate(updated_subtopic)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/v1/admin/subtopics/{subtopic_id}", response_model=schemas.ResponseWrapper)
+def delete_subtopic(
+    subtopic_id: int = Path(..., gt=0),
+    soft_delete: bool = Query(True, description="Soft delete (deactivate) instead of permanent deletion"),
+    db: Session = Depends(get_db)
+):
+    """Delete a subtopic (soft delete by default)"""
+    try:
+        if soft_delete:
+            subtopic = crud.subtopic.soft_delete(db=db, id=subtopic_id)
+        else:
+            subtopic = crud.subtopic.delete(db=db, id=subtopic_id)
+        if not subtopic:
+            raise HTTPException(status_code=404, detail="Subtopic not found")
+        message = "Subtopic deactivated successfully" if soft_delete else "Subtopic deleted successfully"
+        return schemas.ResponseWrapper(message=message)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

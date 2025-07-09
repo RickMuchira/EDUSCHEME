@@ -262,7 +262,7 @@ const SubjectTopicsPage = () => {
                   </div>
                   <div className="flex items-center space-x-1">
                     <Target className="h-4 w-4" />
-                    <span>{topic.learning_objectives.length} objectives</span>
+                    <span>{topic.learning_objectives?.length || 0} objectives</span>
                   </div>
                 </div>
               </CardContent>
