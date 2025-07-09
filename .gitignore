@@ -159,9 +159,6 @@ out/
 # Debug
 *.log
 
-# Local env files
-.env*.local
-
 # Vercel
 .vercel
 
