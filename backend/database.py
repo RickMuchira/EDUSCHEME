@@ -5,10 +5,7 @@ from sqlalchemy.orm import sessionmaker
 import os
 
 # Database configuration for SQLite
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", 
-    "sqlite:///./eduscheme.db"
-)
+DATABASE_URL = "sqlite:////home/rick110/RickDrive/EDUSCHEME/EDUSCHEME/backend/eduscheme.db"
 
 # SQLite-specific engine configuration
 engine = create_engine(
