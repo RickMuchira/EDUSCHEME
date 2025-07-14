@@ -21,7 +21,7 @@ import {
   Loader2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { schoolLevelApi, schemesApi, formGradeApi } from '@/lib/api'
+import { schoolLevelApi, schemeApi, formGradeApi, termApi } from '@/lib/api'
 
 interface SchoolLevel {
   id: number
@@ -66,8 +66,7 @@ export default function SchemeOfWorkPage() {
     schoolName: '',
     schoolLevel: '',
     form: '',
-    term: '',
-    title: ''
+    term: ''
   })
 
   useEffect(() => {
@@ -92,7 +91,16 @@ export default function SchemeOfWorkPage() {
 
   useEffect(() => {
     if (formData.form) {
-      setTerms([])
+      // Fetch terms for the selected form/grade
+      termApi.getAll({ form_grade_id: parseInt(formData.form) })
+        .then(response => {
+          if (response.success && response.data) {
+            setTerms(response.data)
+          } else {
+            setTerms([])
+          }
+        })
+        .catch(() => setTerms([]))
       setFormData(prev => ({ ...prev, term: '' }))
     }
   }, [formData.form, forms])
@@ -114,9 +122,6 @@ export default function SchemeOfWorkPage() {
     if (!formData.schoolName.trim()) {
       newErrors.schoolName = 'Please enter your school name'
     }
-    if (!formData.title.trim()) {
-      newErrors.title = 'Please enter a title for your scheme'
-    }
     if (!formData.schoolLevel) {
       newErrors.schoolLevel = 'Please select a school level'
     }
@@ -137,14 +142,23 @@ export default function SchemeOfWorkPage() {
     setIsLoading(true)
     
     try {
-      // Prepare scheme data for database
+      // Parse IDs and check validity
+      const schoolLevelId = parseInt(formData.schoolLevel)
+      const formGradeId = parseInt(formData.form)
+      const termId = parseInt(formData.term)
+
+      if (!schoolLevelId || !formGradeId || !termId) {
+        setErrors({ general: 'Please select all required fields.' })
+        setIsLoading(false)
+        return
+      }
+
       const schemeData = {
-        title: formData.title,
         school_name: formData.schoolName,
-        subject_name: 'General', // Will be selected in timetable
-        school_level_id: parseInt(formData.schoolLevel),
-        form_grade_id: parseInt(formData.form),
-        term_id: parseInt(formData.term),
+        subject_name: 'General',
+        school_level_id: schoolLevelId,
+        form_grade_id: formGradeId,
+        term_id: termId,
         status: 'completed',
         progress: 100,
         content: {
@@ -157,23 +171,20 @@ export default function SchemeOfWorkPage() {
         }
       }
 
-      // Save to database using email as identifier
-      const response = await schemesApi.create(schemeData, session.user.email)
-      
+      console.log('Submitting schemeData:', schemeData)
+
+      const response = await schemeApi.create(schemeData, session.user.email)
+
       if (response.success) {
-        // Store scheme ID for timetable page
         localStorage.setItem('currentSchemeId', response.data.id.toString())
         localStorage.setItem('schemeFormData', JSON.stringify(formData))
-        
-        // Navigate to timetable
         router.push('/dashboard/timetable')
       } else {
-        throw new Error('Failed to save scheme')
+        throw new Error(response.message || 'Failed to save scheme')
       }
-      
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving scheme:', error)
-      setErrors({ general: 'Failed to save scheme. Please try again.' })
+      setErrors({ general: error.message || 'Failed to save scheme. Please try again.' })
     } finally {
       setIsLoading(false)
     }
@@ -253,21 +264,6 @@ export default function SchemeOfWorkPage() {
                 <AlertDescription className="text-red-700">{errors.general}</AlertDescription>
               </Alert>
             )}
-
-            {/* Title */}
-            <div className="space-y-2">
-              <Label htmlFor="title" className="text-sm font-medium text-gray-700">
-                Scheme Title <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="title"
-                placeholder="e.g., Mathematics Scheme - Term 1"
-                value={formData.title}
-                onChange={(e) => setFormData({...formData, title: e.target.value})}
-                className={errors.title ? 'border-red-300' : ''}
-              />
-              {errors.title && <p className="text-sm text-red-600">{errors.title}</p>}
-            </div>
 
             {/* School Name */}
             <div className="space-y-2">

@@ -1,2 +1,2 @@
-# This file makes api a Python subpackage
+# Empty file
 

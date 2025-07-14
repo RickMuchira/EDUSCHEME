@@ -46,7 +46,6 @@ class SchemeOfWork(Base):
     __tablename__ = "schemes_of_work"
     
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(255), nullable=False)
     school_name = Column(String(255), nullable=False)
     subject_name = Column(String(150), nullable=False)
     status = Column(String(50), default="draft")  # draft, in-progress, completed
