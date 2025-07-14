@@ -9,8 +9,18 @@ from typing import List, Optional
 import time
 import logging
 import os
-from database import create_tables, get_db
-import crud, models, schemas
+try:
+    from api import schemes
+    import models, schemas, crud
+    from database import create_tables, get_db
+except ImportError:
+    # If relative imports don't work, we'll handle this
+    print("Import error - checking directory structure...")
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from api import schemes
+    import models, schemas, crud
+    from database import create_tables, get_db
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -18,9 +28,9 @@ logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
-    title="EDUScheme Pro API",
-    description="AI-powered curriculum planning and content management system",
-    version="2.0.0",
+    title="EduScheme API",
+    description="Educational Scheme Management API",
+    version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -1352,3 +1362,4 @@ if __name__ == "__main__":
         reload=True,
         log_level="info"
     )
+app.include_router(schemes.router)

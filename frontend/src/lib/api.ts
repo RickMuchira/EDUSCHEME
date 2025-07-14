@@ -584,6 +584,21 @@ export const healthApi = {
   }
 }
 
+// Schemes API
+export const schemesApi = {
+  async create(data: any, userGoogleId: string): Promise<ApiResponse<any>> {
+    return apiClient.post<any>(`/api/schemes/?user_google_id=${userGoogleId}`, data)
+  },
+
+  async getLatest(userGoogleId: string): Promise<ApiResponse<any>> {
+    return apiClient.get<any>(`/api/schemes/latest?user_google_id=${userGoogleId}`)
+  },
+
+  async getSubjectsForScheme(formGradeId: number, termId: number): Promise<ApiResponse<any[]>> {
+    return apiClient.get<any[]>(`/api/schemes/subjects?form_grade_id=${formGradeId}&term_id=${termId}`)
+  }
+}
+
 export default {
   schoolLevelApi,
   sectionApi,
@@ -596,5 +611,6 @@ export default {
   subjectOptionsApi,
   hierarchyApi,
   bulkApi,
-  healthApi
+  healthApi,
+  schemesApi
 }

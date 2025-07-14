@@ -17,6 +17,7 @@ import {
   RotateCcw,
   Settings
 } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 import TimetableGrid from './components/TimetableGrid'
 import AnalysisPanel from './components/AnalysisPanel'
@@ -25,8 +26,13 @@ import QuickTemplates from './components/QuickTemplates'
 import { useTimetableState } from './hooks/useTimetableState'
 import { useTimetableAnalytics } from './hooks/useTimetableAnalytics'
 import { TimetableData, LessonSlot } from './types/timetable'
+import { schemesApi } from '@/lib/api'
+import { useSession } from 'next-auth/react'
 
 export default function TimetablePage() {
+  const { data: session } = useSession()
+  const [schemeData, setSchemeData] = useState<any>(null)
+  const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
   const {
     timetableData,
     selectedSlots,
@@ -49,6 +55,34 @@ export default function TimetablePage() {
     conflictWarnings,
     updateAnalytics
   } = useTimetableAnalytics(selectedSlots)
+
+  useEffect(() => {
+    const loadSchemeData = async () => {
+      try {
+        // Get scheme data from localStorage first
+        const savedSchemeData = localStorage.getItem('schemeFormData')
+        if (savedSchemeData) {
+          const parsedData = JSON.parse(savedSchemeData)
+          setSchemeData(parsedData)
+          // Fetch subjects for the selected form and term
+          if (parsedData.form && parsedData.term) {
+            const subjectsResponse = await schemesApi.getSubjectsForScheme(
+              parseInt(parsedData.form),
+              parseInt(parsedData.term)
+            )
+            if (subjectsResponse.success) {
+              setAvailableSubjects(subjectsResponse.data)
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading scheme data:', error)
+      }
+    }
+    if (session?.user?.email) {
+      loadSchemeData()
+    }
+  }, [session])
 
   // Auto-save every 30 seconds
   useEffect(() => {
@@ -230,6 +264,33 @@ export default function TimetablePage() {
           </Card>
         )}
       </div>
+      {/* Subject Selection Modal */}
+      <Dialog open={showSubjectModal} onOpenChange={setShowSubjectModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select a Subject</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {availableSubjects.length === 0 && (
+              <div className="text-gray-500 text-center py-4">No subjects available for this scheme.</div>
+            )}
+            {availableSubjects.map((subject) => (
+              <Button
+                key={subject.id}
+                variant="outline"
+                className="w-full flex items-center justify-between"
+                onClick={() => {
+                  setCurrentSubject(subject)
+                  setShowSubjectModal(false)
+                }}
+              >
+                <span>{subject.name}</span>
+                <span className="text-xs text-gray-400">{subject.code}</span>
+              </Button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

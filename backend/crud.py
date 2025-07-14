@@ -522,6 +522,21 @@ class SchemeOfWorkCRUD:
             and_(SchemeOfWork.user_id == user_id, SchemeOfWork.status == status)
         ).count()
 
+    def get_latest_by_user(self, db: Session, user_id: int) -> Optional[models.SchemeOfWork]:
+        return db.query(models.SchemeOfWork).filter(
+            models.SchemeOfWork.user_id == user_id
+        ).order_by(models.SchemeOfWork.created_at.desc()).first()
+
+    def get_by_term_and_form(self, db: Session, user_id: int, term_id: int, form_grade_id: int) -> List[models.SchemeOfWork]:
+        from sqlalchemy import and_
+        return db.query(models.SchemeOfWork).filter(
+            and_(
+                models.SchemeOfWork.user_id == user_id,
+                models.SchemeOfWork.term_id == term_id,
+                models.SchemeOfWork.form_grade_id == form_grade_id
+            )
+        ).all()
+
 class LessonPlanCRUD:
     def get(self, db: Session, id: int) -> Optional[LessonPlan]:
         return db.query(LessonPlan).filter(LessonPlan.id == id).first()

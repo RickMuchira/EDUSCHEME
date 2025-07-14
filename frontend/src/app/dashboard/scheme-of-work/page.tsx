@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,21 +21,22 @@ import {
   Loader2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { schoolLevelApi, schemesApi, formGradeApi } from '@/lib/api'
 
 interface SchoolLevel {
   id: number
   name: string
   code: string
-  description: string
-  forms_grades: FormGrade[]
+  description?: string
+  // forms_grades removed
 }
 
 interface FormGrade {
   id: number
   name: string
   code: string
-  description: string
-  terms: Term[]
+  description?: string
+  // terms removed
 }
 
 interface Term {
@@ -47,67 +49,73 @@ interface Term {
 
 const steps = [
   { id: 1, name: 'School Details', description: 'Fill the form with the correct details', completed: false },
-  { id: 2, name: 'Subject Selection', description: 'Choose your subject', completed: false },
-  { id: 3, name: 'Content Planning', description: 'Plan your curriculum', completed: false },
-  { id: 4, name: 'Review & Generate', description: 'Review and create scheme', completed: false }
+  { id: 2, name: 'Create Timetable', description: 'Build your teaching schedule', completed: false }
 ]
 
 export default function SchemeOfWorkPage() {
   const router = useRouter()
+  const { data: session } = useSession()
   const [currentStep, setCurrentStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const [schoolLevels, setSchoolLevels] = useState<SchoolLevel[]>([])
   const [forms, setForms] = useState<FormGrade[]>([])
   const [terms, setTerms] = useState<Term[]>([])
-  
+  const [errors, setErrors] = useState<{ [key: string]: string }>({})
+
   const [formData, setFormData] = useState({
     schoolName: '',
     schoolLevel: '',
     form: '',
-    term: ''
+    term: '',
+    title: ''
   })
-  
-  const [errors, setErrors] = useState<Record<string, string>>({})
 
-  // Fetch school levels on component mount
   useEffect(() => {
     fetchSchoolLevels()
   }, [])
 
+  useEffect(() => {
+    if (formData.schoolLevel) {
+      // Fetch forms/grades for the selected school level
+      formGradeApi.getAll({ school_level_id: parseInt(formData.schoolLevel) })
+        .then(response => {
+          if (response.success && response.data) {
+            setForms(response.data)
+          } else {
+            setForms([])
+          }
+        })
+        .catch(() => setForms([]))
+      setFormData(prev => ({ ...prev, form: '', term: '' }))
+    }
+  }, [formData.schoolLevel])
+
+  useEffect(() => {
+    if (formData.form) {
+      setTerms([])
+      setFormData(prev => ({ ...prev, term: '' }))
+    }
+  }, [formData.form, forms])
+
   const fetchSchoolLevels = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/school-levels')
-      const data = await response.json()
-      if (data.success) {
-        setSchoolLevels(data.data)
+      const response = await schoolLevelApi.getAll()
+      if (response.success && response.data) {
+        setSchoolLevels(response.data)
       }
     } catch (error) {
       console.error('Error fetching school levels:', error)
     }
   }
 
-  const handleSchoolLevelChange = (value: string) => {
-    setFormData(prev => ({ ...prev, schoolLevel: value, form: '', term: '' }))
-    const selectedLevel = schoolLevels.find(level => level.id.toString() === value)
-    if (selectedLevel) {
-      setForms(selectedLevel.forms_grades)
-      setTerms([])
-    }
-  }
-
-  const handleFormChange = (value: string) => {
-    setFormData(prev => ({ ...prev, form: value, term: '' }))
-    const selectedForm = forms.find(form => form.id.toString() === value)
-    if (selectedForm) {
-      setTerms(selectedForm.terms)
-    }
-  }
-
   const validateForm = () => {
-    const newErrors: Record<string, string> = {}
-    
+    const newErrors: { [key: string]: string } = {}
+
     if (!formData.schoolName.trim()) {
-      newErrors.schoolName = 'School name is required'
+      newErrors.schoolName = 'Please enter your school name'
+    }
+    if (!formData.title.trim()) {
+      newErrors.title = 'Please enter a title for your scheme'
     }
     if (!formData.schoolLevel) {
       newErrors.schoolLevel = 'Please select a school level'
@@ -124,18 +132,51 @@ export default function SchemeOfWorkPage() {
   }
 
   const handleSaveAndContinue = async () => {
-    if (!validateForm()) return
+    if (!validateForm() || !session?.user?.email) return
     
     setIsLoading(true)
     
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    
-    // Store form data for next step
-    localStorage.setItem('schemeFormData', JSON.stringify(formData))
-    
-    setIsLoading(false)
-    router.push('/dashboard/scheme-of-work/subjects')
+    try {
+      // Prepare scheme data for database
+      const schemeData = {
+        title: formData.title,
+        school_name: formData.schoolName,
+        subject_name: 'General', // Will be selected in timetable
+        school_level_id: parseInt(formData.schoolLevel),
+        form_grade_id: parseInt(formData.form),
+        term_id: parseInt(formData.term),
+        status: 'completed',
+        progress: 100,
+        content: {
+          form_data: formData,
+          step_completed: 'school_details'
+        },
+        scheme_metadata: {
+          created_from: 'scheme_of_work_wizard',
+          step: 1
+        }
+      }
+
+      // Save to database using email as identifier
+      const response = await schemesApi.create(schemeData, session.user.email)
+      
+      if (response.success) {
+        // Store scheme ID for timetable page
+        localStorage.setItem('currentSchemeId', response.data.id.toString())
+        localStorage.setItem('schemeFormData', JSON.stringify(formData))
+        
+        // Navigate to timetable
+        router.push('/dashboard/timetable')
+      } else {
+        throw new Error('Failed to save scheme')
+      }
+      
+    } catch (error) {
+      console.error('Error saving scheme:', error)
+      setErrors({ general: 'Failed to save scheme. Please try again.' })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const getSchoolLevelName = (id: string) => {
@@ -160,7 +201,7 @@ export default function SchemeOfWorkPage() {
           </div>
           <h1 className="text-4xl font-bold text-gray-900">Create a Scheme of Work</h1>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Fill in your teaching details, and we'll generate a customized scheme of work tailored to your schedule in seconds.
+            Fill in your teaching details, and we'll help you create a customized timetable in the next step.
           </p>
         </div>
 
@@ -199,182 +240,159 @@ export default function SchemeOfWorkPage() {
         {/* Main Form Card */}
         <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
           <CardHeader className="text-center space-y-2">
-            <CardTitle className="text-2xl text-gray-900">Fill in the subject and the school details</CardTitle>
+            <CardTitle className="text-2xl text-gray-900">Fill in your school details</CardTitle>
             <CardDescription className="text-gray-600">
-              Fill the form with the correct details.
+              Provide your teaching context to create the perfect scheme.
             </CardDescription>
           </CardHeader>
           
           <CardContent className="space-y-6">
+            {errors.general && (
+              <Alert className="border-red-200 bg-red-50">
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <AlertDescription className="text-red-700">{errors.general}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Title */}
+            <div className="space-y-2">
+              <Label htmlFor="title" className="text-sm font-medium text-gray-700">
+                Scheme Title <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="title"
+                placeholder="e.g., Mathematics Scheme - Term 1"
+                value={formData.title}
+                onChange={(e) => setFormData({...formData, title: e.target.value})}
+                className={errors.title ? 'border-red-300' : ''}
+              />
+              {errors.title && <p className="text-sm text-red-600">{errors.title}</p>}
+            </div>
+
             {/* School Name */}
             <div className="space-y-2">
               <Label htmlFor="schoolName" className="text-sm font-medium text-gray-700">
-                School Name
+                School Name <span className="text-red-500">*</span>
               </Label>
-              <div className="relative">
-                <School className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-                <Input
-                  id="schoolName"
-                  placeholder="Mangu Highschool"
-                  value={formData.schoolName}
-                  onChange={(e) => setFormData(prev => ({ ...prev, schoolName: e.target.value }))}
-                  className={cn(
-                    "pl-10 h-12 bg-gray-50/50 border-gray-200 focus:bg-white transition-colors",
-                    errors.schoolName && "border-red-300 focus:border-red-500"
-                  )}
-                />
-              </div>
-              {errors.schoolName && (
-                <div className="flex items-center space-x-1 text-red-600 text-sm">
-                  <AlertCircle className="w-4 h-4" />
-                  <span>{errors.schoolName}</span>
-                </div>
-              )}
+              <Input
+                id="schoolName"
+                placeholder="Enter your school name"
+                value={formData.schoolName}
+                onChange={(e) => setFormData({...formData, schoolName: e.target.value})}
+                className={errors.schoolName ? 'border-red-300' : ''}
+              />
+              {errors.schoolName && <p className="text-sm text-red-600">{errors.schoolName}</p>}
             </div>
 
             {/* School Level */}
             <div className="space-y-2">
-              <Label htmlFor="schoolLevel" className="text-sm font-medium text-gray-700">
-                School Level
+              <Label className="text-sm font-medium text-gray-700">
+                School Level <span className="text-red-500">*</span>
               </Label>
-              <Select value={formData.schoolLevel} onValueChange={handleSchoolLevelChange}>
-                <SelectTrigger className={cn(
-                  "h-12 bg-gray-50/50 border-gray-200 focus:bg-white",
-                  errors.schoolLevel && "border-red-300"
-                )}>
-                  <div className="flex items-center">
-                    <GraduationCap className="mr-2 h-5 w-5 text-gray-400" />
-                    <SelectValue placeholder="Please select your current school level: choose 'Primary' if you teach in a primary school, or 'Secondary' if you teach in a secondary school." />
-                  </div>
+              <Select 
+                value={formData.schoolLevel} 
+                onValueChange={(value) => setFormData({...formData, schoolLevel: value})}
+              >
+                <SelectTrigger className={errors.schoolLevel ? 'border-red-300' : ''}>
+                  <SelectValue placeholder="Select school level" />
                 </SelectTrigger>
                 <SelectContent>
                   {schoolLevels.map((level) => (
                     <SelectItem key={level.id} value={level.id.toString()}>
                       <div className="flex items-center space-x-2">
-                        <span className="font-medium">{level.name}</span>
-                        <Badge variant="outline" className="text-xs">{level.code}</Badge>
+                        <School className="w-4 h-4" />
+                        <span>{level.name}</span>
                       </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {errors.schoolLevel && (
-                <div className="flex items-center space-x-1 text-red-600 text-sm">
-                  <AlertCircle className="w-4 h-4" />
-                  <span>{errors.schoolLevel}</span>
-                </div>
-              )}
+              {errors.schoolLevel && <p className="text-sm text-red-600">{errors.schoolLevel}</p>}
             </div>
 
             {/* Form/Grade */}
             <div className="space-y-2">
-              <Label htmlFor="form" className="text-sm font-medium text-gray-700">
-                Form
+              <Label className="text-sm font-medium text-gray-700">
+                Form/Grade <span className="text-red-500">*</span>
               </Label>
               <Select 
                 value={formData.form} 
-                onValueChange={handleFormChange}
+                onValueChange={(value) => setFormData({...formData, form: value})}
                 disabled={!formData.schoolLevel}
               >
-                <SelectTrigger className={cn(
-                  "h-12 bg-gray-50/50 border-gray-200 focus:bg-white",
-                  errors.form && "border-red-300",
-                  !formData.schoolLevel && "opacity-50 cursor-not-allowed"
-                )}>
-                  <SelectValue placeholder={
-                    !formData.schoolLevel 
-                      ? "Select school level first" 
-                      : `Select ${getSchoolLevelName(formData.schoolLevel).toLowerCase()} level`
-                  } />
+                <SelectTrigger className={errors.form ? 'border-red-300' : ''}>
+                  <SelectValue placeholder="Select form/grade" />
                 </SelectTrigger>
                 <SelectContent>
                   {forms.map((form) => (
                     <SelectItem key={form.id} value={form.id.toString()}>
                       <div className="flex items-center space-x-2">
-                        <span className="font-medium">{form.name}</span>
-                        <Badge variant="outline" className="text-xs">{form.code}</Badge>
+                        <GraduationCap className="w-4 h-4" />
+                        <span>{form.name}</span>
                       </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {errors.form && (
-                <div className="flex items-center space-x-1 text-red-600 text-sm">
-                  <AlertCircle className="w-4 h-4" />
-                  <span>{errors.form}</span>
-                </div>
-              )}
+              {errors.form && <p className="text-sm text-red-600">{errors.form}</p>}
             </div>
 
             {/* Term */}
             <div className="space-y-2">
-              <Label htmlFor="term" className="text-sm font-medium text-gray-700">
-                Term
+              <Label className="text-sm font-medium text-gray-700">
+                Term <span className="text-red-500">*</span>
               </Label>
               <Select 
                 value={formData.term} 
-                onValueChange={(value) => setFormData(prev => ({ ...prev, term: value }))}
+                onValueChange={(value) => setFormData({...formData, term: value})}
                 disabled={!formData.form}
               >
-                <SelectTrigger className={cn(
-                  "h-12 bg-gray-50/50 border-gray-200 focus:bg-white",
-                  errors.term && "border-red-300",
-                  !formData.form && "opacity-50 cursor-not-allowed"
-                )}>
-                  <div className="flex items-center">
-                    <Calendar className="mr-2 h-5 w-5 text-gray-400" />
-                    <SelectValue placeholder={
-                      !formData.form 
-                        ? "Select form first" 
-                        : "Select Term"
-                    } />
-                  </div>
+                <SelectTrigger className={errors.term ? 'border-red-300' : ''}>
+                  <SelectValue placeholder="Select term" />
                 </SelectTrigger>
                 <SelectContent>
                   {terms.map((term) => (
                     <SelectItem key={term.id} value={term.id.toString()}>
                       <div className="flex items-center space-x-2">
-                        <span className="font-medium">{term.name}</span>
-                        <Badge variant="outline" className="text-xs">{term.code}</Badge>
+                        <Calendar className="w-4 h-4" />
+                        <span>{term.name}</span>
                       </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {errors.term && (
-                <div className="flex items-center space-x-1 text-red-600 text-sm">
-                  <AlertCircle className="w-4 h-4" />
-                  <span>{errors.term}</span>
-                </div>
-              )}
+              {errors.term && <p className="text-sm text-red-600">{errors.term}</p>}
             </div>
 
-            {/* Summary Card */}
-            {formData.schoolName && formData.schoolLevel && formData.form && formData.term && (
-              <Alert className="bg-emerald-50 border-emerald-200">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                <AlertDescription className="text-emerald-800">
-                  <strong>Selected:</strong> {formData.schoolName} • {getSchoolLevelName(formData.schoolLevel)} • {getFormName(formData.form)} • {getTermName(formData.term)}
-                </AlertDescription>
-              </Alert>
+            {/* Summary */}
+            {formData.schoolLevel && formData.form && formData.term && (
+              <div className="mt-6 p-4 bg-emerald-50 rounded-lg">
+                <h3 className="font-medium text-emerald-900 mb-2">Summary</h3>
+                <div className="space-y-1 text-sm text-emerald-700">
+                  <p><strong>School:</strong> {formData.schoolName}</p>
+                  <p><strong>Level:</strong> {getSchoolLevelName(formData.schoolLevel)}</p>
+                  <p><strong>Form:</strong> {getFormName(formData.form)}</p>
+                  <p><strong>Term:</strong> {getTermName(formData.term)}</p>
+                </div>
+              </div>
             )}
 
             {/* Action Button */}
-            <div className="flex justify-end pt-4">
+            <div className="pt-6">
               <Button 
                 onClick={handleSaveAndContinue}
                 disabled={isLoading}
-                className="h-12 px-8 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700 text-white font-medium shadow-lg hover:shadow-xl transition-all duration-200"
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 text-lg font-medium rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
               >
                 {isLoading ? (
                   <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Processing...
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    Saving & Creating Timetable...
                   </>
                 ) : (
                   <>
-                    Save and Continue
-                    <ArrowRight className="ml-2 h-5 w-5" />
+                    Save & Continue to Timetable
+                    <ArrowRight className="w-5 h-5 ml-2" />
                   </>
                 )}
               </Button>
