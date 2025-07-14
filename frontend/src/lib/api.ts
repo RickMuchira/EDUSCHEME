@@ -1,6 +1,8 @@
 // File: frontend/src/lib/api.ts
 // FULLY UPDATED API client with ALL backend endpoints
 
+import apiClient from './apiClient';
+
 interface ApiResponse<T = any> {
   success: boolean
   message: string
@@ -22,35 +24,39 @@ interface SchemeOfWorkCreate {
   due_date?: string
 }
 
-export class ApiClient {
-  private baseURL: string
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-  constructor(baseURL: string = 'http://localhost:8000') {
-    this.baseURL = baseURL
+export class ApiClient {
+  private baseURL: string;
+  
+  constructor() {
+    this.baseURL = API_BASE_URL;
   }
 
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<ApiResponse<T>> {
+  async request(endpoint: string, options: RequestInit = {}) {
+    const url = `${this.baseURL}${endpoint}`;
+    
     try {
-      const response = await fetch(`${this.baseURL}${endpoint}`, {
+      const response = await fetch(url, {
         headers: {
           'Content-Type': 'application/json',
           ...options.headers,
         },
         ...options,
-      })
+      });
+
       if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`)
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-      return await response.json()
-    } catch (error) {
+
+      return await response.json();
+    } catch (error: any) {
+      console.error('API request failed:', error);
+      // Check if it's a connection error
       if (error instanceof TypeError && error.message.includes('fetch')) {
-        throw new Error('Cannot connect to backend server. Make sure your FastAPI server is running on localhost:8000')
+        throw new Error('Cannot connect to backend server. Make sure your FastAPI server is running on localhost:8000');
       }
-      throw error
+      throw error;
     }
   }
 
@@ -89,142 +95,137 @@ export class ApiClient {
   }
 }
 
-export const apiClient = new ApiClient()
+export const apiClient = new ApiClient();
 
-// Type definitions
+// Types
 export interface SchoolLevel {
-  id: number
-  name: string
-  code: string
-  description?: string
-  display_order: number
-  is_active: boolean
-  created_at: string
-  updated_at: string
-  forms_grades: FormGrade[]
+  id: number;
+  name: string;
+  code: string;
+  description?: string;
+  display_order: number;
+  grade_type: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  form_grades?: FormGrade[];
+  terms?: Term[];
 }
 
 export interface FormGrade {
-  id: number
-  name: string
-  code: string
-  description?: string
-  display_order: number
-  school_level_id: number
-  is_active: boolean
-  created_at: string
-  updated_at: string
-  school_level?: SchoolLevel
-  terms: Term[]
+  id: number;
+  name: string;
+  code: string;
+  description?: string;
+  display_order: number;
+  school_level_id: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Term {
-  id: number
-  name: string
-  code: string
-  description?: string
-  start_date?: string
-  end_date?: string
-  display_order: number
-  form_grade_id: number
-  is_active: boolean
-  created_at: string
-  updated_at: string
-  form_grade?: FormGrade
+  id: number;
+  name: string;
+  code: string;
+  start_date?: string;
+  end_date?: string;
+  display_order: number;
+  form_grade_id: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface Subject {
-  id: number
-  name: string
-  code: string
-  description?: string
-  color?: string
-  icon?: string
-  animation_type?: string
-  display_order: number
-  term_id: number
-  is_active: boolean
-  created_at: string
-  updated_at: string
-  term?: Term
+export interface SchemeData {
+  school_name: string;
+  subject_name: string;
+  school_level_id: number;
+  form_grade_id: number;
+  term_id: number;
+  status?: string;
+  progress?: number;
+  content?: any;
+  scheme_metadata?: any;
+  subject_id?: number;
+  due_date?: string;
 }
 
-export interface User {
-  id: number
-  email: string
-  name: string
-  google_id: string
-  picture?: string
-  is_active: boolean
-  created_at: string
-  last_login?: string
+export interface SchemeResponse {
+  id: number;
+  school_name: string;
+  subject_name: string;
+  school_level_id: number;
+  form_grade_id: number;
+  term_id: number;
+  user_id: number;
+  status: string;
+  progress: number;
+  content?: any;
+  scheme_metadata?: any;
+  subject_id?: number;
+  created_at: string;
+  updated_at: string;
+  due_date?: string;
 }
 
-export interface UserCreate {
-  email: string
-  name: string
-  google_id: string
-  picture?: string
-}
+// API functions
+export const schoolLevelApi = {
+  getAll: (includeRelations = true): Promise<SchoolLevel[]> =>
+    apiClient.get('/api/school-levels', { include_relations: includeRelations }),
 
-export interface UserUpdate {
-  name?: string
-  picture?: string
-  is_active?: boolean
-}
+  getById: (id: number, includeRelations = true): Promise<SchoolLevel> =>
+    apiClient.get(`/api/school-levels/${id}`, { include_relations: includeRelations }),
+};
 
-export interface SchemeOfWork {
-  id: number
-  school_name: string
-  subject_name: string
-  status: string
-  progress: number
-  content?: any
-  scheme_metadata?: any
-  user_id: number
-  school_level_id: number
-  form_grade_id: number
-  term_id: number
-  subject_id?: number
-  created_at: string
-  updated_at: string
-  due_date?: string
-}
+export const formGradeApi = {
+  getAll: (): Promise<FormGrade[]> =>
+    apiClient.get('/api/form-grades'),
 
-export interface SchemeOfWorkCreate {
-  school_name: string
-  subject_name: string
-  status?: string
-  progress?: number
-  content?: any
-  scheme_metadata?: any
-  school_level_id: number
-  form_grade_id: number
-  term_id: number
-  subject_id?: number
-  due_date?: string
-}
+  getById: (id: number): Promise<FormGrade> =>
+    apiClient.get(`/api/form-grades/${id}`),
 
-export interface SchemeOfWorkUpdate {
-  school_name?: string
-  subject_name?: string
-  status?: string
-  progress?: number
-  content?: any
-  scheme_metadata?: any
-  school_level_id?: number
-  form_grade_id?: number
-  term_id?: number
-  subject_id?: number
-  due_date?: string
-}
+  getBySchoolLevel: (schoolLevelId: number): Promise<FormGrade[]> =>
+    apiClient.get('/api/form-grades', { school_level_id: schoolLevelId }),
+};
 
-export interface DashboardStats {
-  total_schemes: number
-  completed_schemes: number
-  active_schemes: number
-  total_lessons: number
-  completion_rate: number
+export const termApi = {
+  getAll: (): Promise<Term[]> =>
+    apiClient.get('/api/terms'),
+
+  getById: (id: number): Promise<Term> =>
+    apiClient.get(`/api/terms/${id}`),
+
+  getByFormGrade: (formGradeId: number): Promise<Term[]> =>
+    apiClient.get('/api/terms', { form_grade_id: formGradeId }),
+};
+
+export const schemeApi = {
+  create: (schemeData: SchemeData, userGoogleId: string): Promise<SchemeResponse> =>
+    apiClient.post('/api/schemes', schemeData, { user_google_id: userGoogleId }),
+
+  getAll: (userGoogleId: string, skip = 0, limit = 100): Promise<SchemeResponse[]> =>
+    apiClient.get('/api/schemes', { 
+      user_google_id: userGoogleId, 
+      skip, 
+      limit 
+    }),
+
+  getById: (id: number, userGoogleId: string): Promise<SchemeResponse> =>
+    apiClient.get(`/api/schemes/${id}`, { user_google_id: userGoogleId }),
+
+  update: (id: number, schemeData: Partial<SchemeData>, userGoogleId: string): Promise<SchemeResponse> =>
+    apiClient.put(`/api/schemes/${id}`, schemeData, { user_google_id: userGoogleId }),
+
+  delete: (id: number, userGoogleId: string): Promise<{ message: string }> =>
+    apiClient.delete(`/api/schemes/${id}`, { user_google_id: userGoogleId }),
+};
+
+// Dashboard API
+export const dashboardApi = {
+  async getStats(userGoogleId: string): Promise<any> {
+    return apiClient.request<DashboardStats>(`/api/dashboard/stats?user_google_id=${userGoogleId}`)
+  }
 }
 
 // User API
@@ -245,244 +246,6 @@ export const userApi = {
       method: 'PUT',
       body: JSON.stringify(data),
     })
-  }
-}
-
-// Scheme API
-export const schemeApi = {
-  async create(scheme: SchemeOfWorkCreate, userGoogleId: string): Promise<any> {
-    return apiClient.createScheme(scheme, userGoogleId)
-  },
-
-  async getAll(userGoogleId: string, status?: string, skip = 0, limit = 100): Promise<any> {
-    const params = new URLSearchParams({
-      user_google_id: userGoogleId,
-      skip: skip.toString(),
-      limit: limit.toString()
-    })
-    if (status) params.append('status', status)
-    
-    return apiClient.request<SchemeOfWork[]>(`/api/schemes?${params}`)
-  },
-
-  async getById(id: number, userGoogleId: string): Promise<any> {
-    return apiClient.request<SchemeOfWork>(`/api/schemes/${id}?user_google_id=${userGoogleId}`)
-  },
-
-  async update(id: number, data: SchemeOfWorkUpdate, userGoogleId: string): Promise<any> {
-    return apiClient.request<SchemeOfWork>(`/api/schemes/${id}?user_google_id=${userGoogleId}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    })
-  },
-
-  async delete(id: number, userGoogleId: string): Promise<any> {
-    return apiClient.request<void>(`/api/schemes/${id}?user_google_id=${userGoogleId}`, { method: 'DELETE' })
-  }
-}
-
-// Dashboard API
-export const dashboardApi = {
-  async getStats(userGoogleId: string): Promise<any> {
-    return apiClient.request<DashboardStats>(`/api/dashboard/stats?user_google_id=${userGoogleId}`)
-  }
-}
-
-// School Levels API
-export const schoolLevelApi = {
-  async getAll(includeInactive: boolean = false): Promise<any> {
-    try {
-      const response = await apiClient.request<SchoolLevel[]>(`/api/school-levels?include_relations=true`)
-      return response
-    } catch (error) {
-      // Return mock data if backend endpoint doesn't exist yet
-      console.warn('Backend school-levels endpoint not available, using mock data')
-      return {
-        success: true,
-        message: "Mock data",
-        data: [
-          {
-            id: 1,
-            name: "Primary School",
-            code: "PRI",
-            description: "Primary education level",
-            display_order: 1,
-            is_active: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            forms_grades: [
-              {
-                id: 1,
-                name: "Grade 1",
-                code: "G1",
-                description: "First grade",
-                display_order: 1,
-                school_level_id: 1,
-                is_active: true,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                terms: [
-                  { id: 1, name: "Term 1", code: "T1", display_order: 1, form_grade_id: 1, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-                  { id: 2, name: "Term 2", code: "T2", display_order: 2, form_grade_id: 1, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-                  { id: 3, name: "Term 3", code: "T3", display_order: 3, form_grade_id: 1, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
-                ]
-              },
-              {
-                id: 2,
-                name: "Grade 2",
-                code: "G2",
-                description: "Second grade",
-                display_order: 2,
-                school_level_id: 1,
-                is_active: true,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                terms: [
-                  { id: 4, name: "Term 1", code: "T1", display_order: 1, form_grade_id: 2, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-                  { id: 5, name: "Term 2", code: "T2", display_order: 2, form_grade_id: 2, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-                  { id: 6, name: "Term 3", code: "T3", display_order: 3, form_grade_id: 2, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
-                ]
-              }
-            ]
-          },
-          {
-            id: 2,
-            name: "Secondary School", 
-            code: "SEC",
-            description: "Secondary education level",
-            display_order: 2,
-            is_active: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            forms_grades: [
-              {
-                id: 3,
-                name: "Form 1",
-                code: "F1", 
-                description: "First form",
-                display_order: 1,
-                school_level_id: 2,
-                is_active: true,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                terms: [
-                  { id: 7, name: "Term 1", code: "T1", display_order: 1, form_grade_id: 3, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-                  { id: 8, name: "Term 2", code: "T2", display_order: 2, form_grade_id: 3, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-                  { id: 9, name: "Term 3", code: "T3", display_order: 3, form_grade_id: 3, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    }
-  },
-
-  async getById(id: number): Promise<any> {
-    return apiClient.request<SchoolLevel>(`/api/school-levels/${id}`)
-  }
-}
-
-// Form Grade API - Required by your page
-export const formGradeApi = {
-  async getAll(params?: { school_level_id?: number; include_inactive?: boolean }): Promise<any> {
-    console.log('formGradeApi.getAll called with params:', params)
-    
-    // Mock response for now since backend doesn't have this endpoint yet
-    if (params?.school_level_id) {
-      // Filter mock data by school level
-      const schoolLevelsResponse = await schoolLevelApi.getAll()
-      if (schoolLevelsResponse.success && schoolLevelsResponse.data) {
-        const schoolLevel = schoolLevelsResponse.data.find(sl => sl.id === params.school_level_id)
-        if (schoolLevel) {
-          return {
-            success: true,
-            message: "Forms retrieved successfully",
-            data: schoolLevel.forms_grades
-          }
-        }
-      }
-    }
-    
-    return {
-      success: true,
-      message: "No forms found",
-      data: []
-    }
-  },
-
-  async getById(id: number): Promise<any> {
-    // Mock response for now
-    return {
-      success: true,
-      message: "Form grade retrieved",
-      data: {
-        id,
-        name: `Form ${id}`,
-        code: `F${id}`,
-        description: `Form ${id} description`,
-        display_order: id,
-        school_level_id: 1,
-        is_active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        terms: []
-      }
-    }
-  },
-
-  async getBySchoolLevel(schoolLevelId: number): Promise<any> {
-    return this.getAll({ school_level_id: schoolLevelId })
-  }
-}
-
-// Term API - Required by your page
-export const termApi = {
-  async getAll(params?: { form_grade_id?: number; include_inactive?: boolean }): Promise<any> {
-    console.log('termApi.getAll called with params:', params)
-    
-    // Mock response for now since backend doesn't have this endpoint yet
-    if (params?.form_grade_id) {
-      const mockTerms = [
-        { id: 1, name: "Term 1", code: "T1", display_order: 1, form_grade_id: params.form_grade_id, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-        { id: 2, name: "Term 2", code: "T2", display_order: 2, form_grade_id: params.form_grade_id, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-        { id: 3, name: "Term 3", code: "T3", display_order: 3, form_grade_id: params.form_grade_id, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
-      ]
-      
-      return {
-        success: true,
-        message: "Terms retrieved successfully",
-        data: mockTerms
-      }
-    }
-    
-    return {
-      success: true,
-      message: "No terms found",
-      data: []
-    }
-  },
-
-  async getById(id: number): Promise<any> {
-    return {
-      success: true,
-      message: "Term retrieved",
-      data: {
-        id,
-        name: `Term ${id}`,
-        code: `T${id}`,
-        description: `Term ${id} description`,
-        display_order: id,
-        form_grade_id: 1,
-        is_active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }
-    }
-  },
-
-  async getByFormGrade(formGradeId: number, includeInactive: boolean = false): Promise<any> {
-    return this.getAll({ form_grade_id: formGradeId, include_inactive: includeInactive })
   }
 }
 

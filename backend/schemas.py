@@ -5,7 +5,11 @@ from datetime import datetime
 
 # Base schema with configuration
 class BaseSchema(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        arbitrary_types_allowed=True,
+        use_enum_values=True
+    )
 
 # ============= RESPONSE WRAPPER =============
 
@@ -64,16 +68,21 @@ class SchemeOfWorkUpdate(BaseSchema):
     scheme_metadata: Optional[Dict[str, Any]] = None
     due_date: Optional[datetime] = None
 
-class SchemeOfWork(SchemeOfWorkBase):
+class SchemeOfWorkResponse(SchemeOfWorkBase):
     id: int
     user_id: int
     school_level_id: int
     form_grade_id: int
     term_id: int
-    subject_id: Optional[int]
+    subject_id: Optional[int] = None
     created_at: datetime
-    updated_at: datetime
-    due_date: Optional[datetime]
+    updated_at: Optional[datetime] = None
+    due_date: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+# Alias for backward compatibility
+SchemeOfWork = SchemeOfWorkResponse
 
 # ============= LESSON PLAN SCHEMAS =============
 

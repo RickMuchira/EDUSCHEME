@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { schoolLevelApi, schemeApi, formGradeApi, termApi } from '@/lib/api'
+import apiClient from '@/lib/apiClient'
 
 interface SchoolLevel {
   id: number
@@ -137,28 +138,25 @@ export default function SchemeOfWorkPage() {
   }
 
   const handleSaveAndContinue = async () => {
-    if (!validateForm() || !session?.user?.email) return
-    
-    setIsLoading(true)
-    
+    if (!session?.user?.email) {
+      setErrors({ general: 'Please sign in to continue' });
+      return;
+    }
+
+    if (!validateForm()) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrors({ general: '' });
+
     try {
-      // Parse IDs and check validity
-      const schoolLevelId = parseInt(formData.schoolLevel)
-      const formGradeId = parseInt(formData.form)
-      const termId = parseInt(formData.term)
-
-      if (!schoolLevelId || !formGradeId || !termId) {
-        setErrors({ general: 'Please select all required fields.' })
-        setIsLoading(false)
-        return
-      }
-
       const schemeData = {
         school_name: formData.schoolName,
         subject_name: 'General',
-        school_level_id: schoolLevelId,
-        form_grade_id: formGradeId,
-        term_id: termId,
+        school_level_id: parseInt(formData.schoolLevel),
+        form_grade_id: parseInt(formData.form),
+        term_id: parseInt(formData.term),
         status: 'completed',
         progress: 100,
         content: {
@@ -169,24 +167,31 @@ export default function SchemeOfWorkPage() {
           created_from: 'scheme_of_work_wizard',
           step: 1
         }
-      }
+      };
 
-      console.log('Submitting schemeData:', schemeData)
-
-      const response = await schemeApi.create(schemeData, session.user.email)
-
-      if (response.success) {
+      const response = await apiClient.request(
+        `/api/schemes?user_google_id=${encodeURIComponent(session.user.email)}`,
+        {
+          method: 'POST',
+          body: JSON.stringify(schemeData),
+        }
+      );
+      
+      if (response) {
+        console.log('Scheme saved successfully:', response);
         localStorage.setItem('currentSchemeId', response.data.id.toString())
         localStorage.setItem('schemeFormData', JSON.stringify(formData))
-        router.push('/dashboard/timetable')
-      } else {
-        throw new Error(response.message || 'Failed to save scheme')
+        router.push('/dashboard/timetable');
       }
     } catch (error: any) {
-      console.error('Error saving scheme:', error)
-      setErrors({ general: error.message || 'Failed to save scheme. Please try again.' })
+      console.error('Error saving scheme:', error);
+      if (error.message.includes('Cannot connect to backend server')) {
+        setErrors({ general: 'Cannot connect to backend server. Please make sure the FastAPI server is running on localhost:8000' });
+      } else {
+        setErrors({ general: error.message || 'Failed to save scheme. Please try again.' });
+      }
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
 

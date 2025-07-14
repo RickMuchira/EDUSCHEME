@@ -73,6 +73,26 @@ class SchemeOfWork(Base):
     subject = relationship("Subject")
     lesson_plans = relationship("LessonPlan", back_populates="scheme", cascade="all, delete-orphan")
 
+    def to_dict(self):
+        """Convert SQLAlchemy model to dictionary for serialization"""
+        return {
+            "id": self.id,
+            "school_name": self.school_name,
+            "subject_name": self.subject_name,
+            "status": self.status,
+            "progress": self.progress,
+            "content": self.content,
+            "scheme_metadata": self.scheme_metadata,
+            "user_id": self.user_id,
+            "school_level_id": self.school_level_id,
+            "form_grade_id": self.form_grade_id,
+            "term_id": self.term_id,
+            "subject_id": self.subject_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "due_date": self.due_date.isoformat() if self.due_date else None,
+        }
+
 # Lesson Plan model
 class LessonPlan(Base):
     __tablename__ = "lesson_plans"
