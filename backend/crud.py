@@ -1,8 +1,9 @@
 # backend/crud.py
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, desc, func
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 import models, schemas
+from models import User, SchemeOfWork, LessonPlan
 
 class BaseCRUD:
     def __init__(self, model):
@@ -106,6 +107,49 @@ class SchoolLevelCRUD(BaseCRUD):
             .joinedload(models.Subject.topics)
             .joinedload(models.Topic.subtopics)
         ).filter(self.model.id == school_level_id).first()
+
+    def get_all_with_relations(self, db: Session) -> List[dict]:
+        """Get all school levels with their forms/grades and terms"""
+        school_levels = db.query(models.SchoolLevel).options(
+            joinedload(models.SchoolLevel.forms_grades).joinedload(models.FormGrade.terms)
+        ).filter(models.SchoolLevel.is_active == True).all()
+        
+        result = []
+        for level in school_levels:
+            level_dict = {
+                "id": level.id,
+                "name": level.name,
+                "code": level.code,
+                "description": level.description,
+                "forms_grades": []
+            }
+            
+            for form in level.forms_grades:
+                if form.is_active:
+                    form_dict = {
+                        "id": form.id,
+                        "name": form.name,
+                        "code": form.code,
+                        "description": form.description,
+                        "terms": []
+                    }
+                    
+                    for term in form.terms:
+                        if term.is_active:
+                            term_dict = {
+                                "id": term.id,
+                                "name": term.name,
+                                "code": term.code,
+                                "start_date": term.start_date.isoformat() if term.start_date else None,
+                                "end_date": term.end_date.isoformat() if term.end_date else None
+                            }
+                            form_dict["terms"].append(term_dict)
+                    
+                    level_dict["forms_grades"].append(form_dict)
+            
+            result.append(level_dict)
+        
+        return result
 
     def create(self, db: Session, *, obj_in):
         # Ensure we have a school_id, default to 1 if not provided
@@ -395,6 +439,109 @@ class HierarchyCRUD:
         # This would be useful for copying term structures, etc.
         pass
 
+class UserCRUD:
+    def get(self, db: Session, id: int) -> Optional[User]:
+        return db.query(User).filter(User.id == id).first()
+    
+    def get_by_email(self, db: Session, email: str) -> Optional[User]:
+        return db.query(User).filter(User.email == email).first()
+    
+    def get_by_google_id(self, db: Session, google_id: str) -> Optional[User]:
+        return db.query(User).filter(User.google_id == google_id).first()
+    
+    def create(self, db: Session, obj_in: schemas.UserCreate) -> User:
+        db_obj = User(
+            google_id=obj_in.google_id,
+            email=obj_in.email,
+            name=obj_in.name,
+            picture=obj_in.picture,
+            last_login=func.now()
+        )
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
+        return db_obj
+    
+    def update(self, db: Session, db_obj: User, obj_in: schemas.UserUpdate) -> User:
+        obj_data = obj_in.dict(exclude_unset=True)
+        for field, value in obj_data.items():
+            setattr(db_obj, field, value)
+        
+        db_obj.updated_at = func.now()
+        db.commit()
+        db.refresh(db_obj)
+        return db_obj
+
+class SchemeOfWorkCRUD:
+    def get(self, db: Session, id: int) -> Optional[SchemeOfWork]:
+        return db.query(SchemeOfWork).filter(SchemeOfWork.id == id).first()
+    
+    def get_by_user(
+        self, 
+        db: Session, 
+        user_id: int, 
+        status: Optional[str] = None,
+        skip: int = 0, 
+        limit: int = 100
+    ) -> List[SchemeOfWork]:
+        query = db.query(SchemeOfWork).filter(SchemeOfWork.user_id == user_id)
+        
+        if status:
+            query = query.filter(SchemeOfWork.status == status)
+        
+        return query.offset(skip).limit(limit).all()
+    
+    def create(self, db: Session, obj_in: Dict[str, Any]) -> SchemeOfWork:
+        db_obj = SchemeOfWork(**obj_in)
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
+        return db_obj
+    
+    def update(self, db: Session, db_obj: SchemeOfWork, obj_in: schemas.SchemeOfWorkUpdate) -> SchemeOfWork:
+        obj_data = obj_in.dict(exclude_unset=True)
+        for field, value in obj_data.items():
+            setattr(db_obj, field, value)
+        
+        db_obj.updated_at = func.now()
+        db.commit()
+        db.refresh(db_obj)
+        return db_obj
+    
+    def remove(self, db: Session, id: int) -> SchemeOfWork:
+        obj = db.query(SchemeOfWork).get(id)
+        db.delete(obj)
+        db.commit()
+        return obj
+    
+    def count_by_user(self, db: Session, user_id: int) -> int:
+        return db.query(SchemeOfWork).filter(SchemeOfWork.user_id == user_id).count()
+    
+    def count_by_user_and_status(self, db: Session, user_id: int, status: str) -> int:
+        return db.query(SchemeOfWork).filter(
+            and_(SchemeOfWork.user_id == user_id, SchemeOfWork.status == status)
+        ).count()
+
+class LessonPlanCRUD:
+    def get(self, db: Session, id: int) -> Optional[LessonPlan]:
+        return db.query(LessonPlan).filter(LessonPlan.id == id).first()
+    
+    def get_by_scheme(self, db: Session, scheme_id: int) -> List[LessonPlan]:
+        return db.query(LessonPlan).filter(LessonPlan.scheme_id == scheme_id).all()
+    
+    def get_by_user(self, db: Session, user_id: int, skip: int = 0, limit: int = 100) -> List[LessonPlan]:
+        return db.query(LessonPlan).filter(LessonPlan.user_id == user_id).offset(skip).limit(limit).all()
+    
+    def create(self, db: Session, obj_in: Dict[str, Any]) -> LessonPlan:
+        db_obj = LessonPlan(**obj_in)
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
+        return db_obj
+    
+    def count_by_user(self, db: Session, user_id: int) -> int:
+        return db.query(LessonPlan).filter(LessonPlan.user_id == user_id).count()
+
 # Initialize CRUD instances
 school_level = SchoolLevelCRUD()
 section = SectionCRUD()
@@ -404,3 +551,6 @@ subject = SubjectCRUD()
 topic = TopicCRUD()
 subtopic = SubtopicCRUD()
 hierarchy = HierarchyCRUD()
+user = UserCRUD()
+scheme = SchemeOfWorkCRUD()
+lesson_plan = LessonPlanCRUD()

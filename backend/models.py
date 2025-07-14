@@ -24,6 +24,87 @@ class JSONType(TypeDecorator):
             return json.loads(value)
         return value
 
+# User model for Google authenticated users
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    google_id = Column(String(255), unique=True, nullable=False, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    picture = Column(String(500))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    last_login = Column(DateTime)
+    
+    # Relationships
+    schemes = relationship("SchemeOfWork", back_populates="user", cascade="all, delete-orphan")
+    lesson_plans = relationship("LessonPlan", back_populates="user", cascade="all, delete-orphan")
+
+# Scheme of Work model
+class SchemeOfWork(Base):
+    __tablename__ = "schemes_of_work"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    school_name = Column(String(255), nullable=False)
+    subject_name = Column(String(150), nullable=False)
+    status = Column(String(50), default="draft")  # draft, in-progress, completed
+    progress = Column(Integer, default=0)  # 0-100
+    content = Column(JSONType)  # Store scheme content as JSON
+    scheme_metadata = Column(JSONType)  # Additional metadata - RENAMED from 'metadata'
+    
+    # Foreign Keys
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    school_level_id = Column(Integer, ForeignKey("school_levels.id"), nullable=False)
+    form_grade_id = Column(Integer, ForeignKey("forms_grades.id"), nullable=False)
+    term_id = Column(Integer, ForeignKey("terms.id"), nullable=False)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    due_date = Column(DateTime)
+    
+    # Relationships
+    user = relationship("User", back_populates="schemes")
+    school_level = relationship("SchoolLevel")
+    form_grade = relationship("FormGrade")
+    term = relationship("Term")
+    subject = relationship("Subject")
+    lesson_plans = relationship("LessonPlan", back_populates="scheme", cascade="all, delete-orphan")
+
+# Lesson Plan model
+class LessonPlan(Base):
+    __tablename__ = "lesson_plans"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    content = Column(JSONType)  # Store lesson content as JSON
+    objectives = Column(JSONType)  # Learning objectives
+    activities = Column(JSONType)  # Lesson activities
+    resources = Column(JSONType)  # Required resources
+    assessment = Column(JSONType)  # Assessment methods
+    duration_minutes = Column(Integer, default=40)
+    lesson_number = Column(Integer, default=1)
+    
+    # Foreign Keys
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    scheme_id = Column(Integer, ForeignKey("schemes_of_work.id"), nullable=False)
+    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=True)
+    subtopic_id = Column(Integer, ForeignKey("subtopics.id"), nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    scheduled_date = Column(DateTime)
+    
+    # Relationships
+    user = relationship("User", back_populates="lesson_plans")
+    scheme = relationship("SchemeOfWork", back_populates="lesson_plans")
+    topic = relationship("Topic")
+    subtopic = relationship("Subtopic")
+
 class School(Base):
     __tablename__ = "schools"
     
@@ -74,7 +155,6 @@ class Section(Base):
     
     # Relationships
     school_level = relationship("SchoolLevel", back_populates="sections")
-    # Note: forms_grades relationship removed since FormGrade now references SchoolLevel directly
 
 class FormGrade(Base):
     __tablename__ = "forms_grades"
