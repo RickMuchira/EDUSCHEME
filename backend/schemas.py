@@ -41,7 +41,6 @@ class User(UserBase):
 # ============= SCHEME OF WORK SCHEMAS =============
 
 class SchemeOfWorkBase(BaseSchema):
-    title: str = Field(..., min_length=1, max_length=255, description="Scheme title")
     school_name: str = Field(..., min_length=1, max_length=255, description="School name")
     subject_name: str = Field(..., min_length=1, max_length=150, description="Subject name")
     status: str = Field(default="draft", description="Scheme status")
@@ -57,6 +56,8 @@ class SchemeOfWorkCreate(SchemeOfWorkBase):
     due_date: Optional[datetime] = Field(None, description="Due date")
 
 class SchemeOfWorkUpdate(BaseSchema):
+    school_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    subject_name: Optional[str] = Field(None, min_length=1, max_length=150)
     status: Optional[str] = None
     progress: Optional[int] = Field(None, ge=0, le=100)
     content: Optional[Dict[str, Any]] = None

@@ -78,7 +78,6 @@ class LessonPlan(Base):
     __tablename__ = "lesson_plans"
     
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(255), nullable=False)
     content = Column(JSONType)  # Store lesson content as JSON
     objectives = Column(JSONType)  # Learning objectives
     activities = Column(JSONType)  # Lesson activities
@@ -214,7 +213,6 @@ class Topic(Base):
     __tablename__ = "topics"
     
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(255), nullable=False)
     description = Column(Text)
     learning_objectives = Column(JSONType)  # Store as JSON using custom type
     duration_weeks = Column(Integer, default=1)
@@ -232,7 +230,6 @@ class Subtopic(Base):
     __tablename__ = "subtopics"
     
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(255), nullable=False)
     content = Column(Text)
     activities = Column(JSONType)  # Store activities as JSON using custom type
     assessment_criteria = Column(JSONType)  # Assessment criteria as JSON using custom type
