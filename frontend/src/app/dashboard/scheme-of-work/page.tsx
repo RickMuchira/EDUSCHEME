@@ -21,23 +21,25 @@ import {
   Loader2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { schoolLevelApi, schemeApi, formGradeApi, termApi } from '@/lib/api'
+import { schoolLevelApi, schemeApi, formGradeApi, termApi, subjectApi, topicApi, subtopicApi } from '@/lib/api'
 import apiClient from '@/lib/apiClient'
+
 
 interface SchoolLevel {
   id: number
   name: string
   code: string
   description?: string
-  // forms_grades removed
+  forms_grades?: FormGrade[]
 }
+
 
 interface FormGrade {
   id: number
   name: string
   code: string
   description?: string
-  // terms removed
+  terms?: Term[]
 }
 
 interface Term {
@@ -63,6 +65,14 @@ export default function SchemeOfWorkPage() {
   const [terms, setTerms] = useState<Term[]>([])
   const [errors, setErrors] = useState<{ [key: string]: string }>({})
 
+  // Subject, topic, subtopic cascading selection
+  const [subjects, setSubjects] = useState<any[]>([])
+  const [topics, setTopics] = useState<any[]>([])
+  const [subtopics, setSubtopics] = useState<any[]>([])
+  const [selectedSubject, setSelectedSubject] = useState<string>('')
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([])
+  const [selectedSubtopics, setSelectedSubtopics] = useState<string[]>([])
+
   const [formData, setFormData] = useState({
     schoolName: '',
     schoolLevel: '',
@@ -74,46 +84,121 @@ export default function SchemeOfWorkPage() {
     fetchSchoolLevels()
   }, [])
 
+  // Debug: log schoolLevels after fetch
+  useEffect(() => {
+    if (schoolLevels.length > 0) {
+      console.log('schoolLevels:', schoolLevels)
+    }
+  }, [schoolLevels])
+
   useEffect(() => {
     if (formData.schoolLevel) {
-      // Fetch forms/grades for the selected school level
-      formGradeApi.getAll({ school_level_id: parseInt(formData.schoolLevel) })
-        .then(response => {
-          if (response.success && response.data) {
-            setForms(response.data)
-          } else {
-            setForms([])
-          }
-        })
-        .catch(() => setForms([]))
+      // Use nested forms_grades from selected school level
+      const level = schoolLevels.find(l => l.id.toString() === formData.schoolLevel)
+      if (level && Array.isArray(level.forms_grades)) {
+        setForms(level.forms_grades)
+        console.log('forms for selected school level:', level.forms_grades)
+      } else {
+        setForms([])
+        console.log('No forms found for selected school level')
+      }
       setFormData(prev => ({ ...prev, form: '', term: '' }))
     }
-  }, [formData.schoolLevel])
+  }, [formData.schoolLevel, schoolLevels])
 
   useEffect(() => {
     if (formData.form) {
-      // Fetch terms for the selected form/grade
-      termApi.getAll({ form_grade_id: parseInt(formData.form) })
-        .then(response => {
-          if (response.success && response.data) {
-            setTerms(response.data)
-          } else {
-            setTerms([])
-          }
-        })
-        .catch(() => setTerms([]))
+      // Use nested terms from selected form/grade
+      const form = forms.find(f => f.id.toString() === formData.form)
+      if (form && Array.isArray(form.terms)) {
+        setTerms(form.terms)
+        console.log('terms for selected form:', form.terms)
+      } else {
+        setTerms([])
+        console.log('No terms found for selected form')
+      }
       setFormData(prev => ({ ...prev, term: '' }))
     }
   }, [formData.form, forms])
 
+  // Fetch subjects when term changes
+  useEffect(() => {
+    if (formData.term) {
+      subjectApi.getByTerm(parseInt(formData.term)).then(response => {
+        // Support both {success, data} and array response
+        if (Array.isArray(response)) {
+          setSubjects(response)
+          console.log('subjects (array):', response)
+        } else if (response && response.success && Array.isArray(response.data)) {
+          setSubjects(response.data)
+          console.log('subjects (data):', response.data)
+        } else {
+          setSubjects([])
+          console.log('subjects: empty or invalid response', response)
+        }
+      }).catch((err) => {
+        setSubjects([])
+        console.log('subjects: error', err)
+      })
+      setSelectedSubject('')
+      setTopics([])
+      setSelectedTopics([])
+      setSubtopics([])
+      setSelectedSubtopics([])
+    }
+  }, [formData.term])
+
+  // Fetch topics when subject changes
+  useEffect(() => {
+    if (selectedSubject) {
+      topicApi.getBySubject(parseInt(selectedSubject)).then(response => {
+        if (response.success && response.data) {
+          setTopics(response.data)
+        } else {
+          setTopics([])
+        }
+      }).catch(() => setTopics([]))
+      setSelectedTopics([])
+      setSubtopics([])
+      setSelectedSubtopics([])
+    }
+  }, [selectedSubject])
+
+  // Fetch subtopics when topics change
+  useEffect(() => {
+    if (selectedTopics.length === 1) {
+      // Only fetch subtopics for single topic selection for now
+      subtopicApi.getByTopic(parseInt(selectedTopics[0])).then(response => {
+        if (response.success && response.data) {
+          setSubtopics(response.data)
+        } else {
+          setSubtopics([])
+        }
+      }).catch(() => setSubtopics([]))
+      setSelectedSubtopics([])
+    } else {
+      setSubtopics([])
+      setSelectedSubtopics([])
+    }
+  }, [selectedTopics])
+
   const fetchSchoolLevels = async () => {
     try {
-      const response = await schoolLevelApi.getAll()
-      if (response.success && response.data) {
+      const response: any = await schoolLevelApi.getAll()
+      // Support both {success, data} and array response
+      if (Array.isArray(response)) {
+        setSchoolLevels(response)
+        console.log('schoolLevels (array):', response)
+      } else if (response && response.success && Array.isArray(response.data)) {
         setSchoolLevels(response.data)
+        console.log('schoolLevels (data):', response.data)
+      } else {
+        setSchoolLevels([])
+        console.log('schoolLevels: empty or invalid response', response)
       }
     } catch (error) {
       console.error('Error fetching school levels:', error)
+      setSchoolLevels([])
     }
   }
 
@@ -132,7 +217,15 @@ export default function SchemeOfWorkPage() {
     if (!formData.term) {
       newErrors.term = 'Please select a term'
     }
-    
+    if (!selectedSubject) {
+      newErrors.subject = 'Please select a subject'
+    }
+    if (topics.length > 0 && selectedTopics.length === 0) {
+      newErrors.topics = 'Please select at least one topic'
+    }
+    if (subtopics.length > 0 && selectedSubtopics.length === 0) {
+      newErrors.subtopics = 'Please select at least one subtopic'
+    }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -153,7 +246,8 @@ export default function SchemeOfWorkPage() {
     try {
       const schemeData = {
         school_name: formData.schoolName,
-        subject_name: 'General',
+        subject_name: subjects.find(s => s.id.toString() === selectedSubject)?.name || '',
+        subject_id: selectedSubject ? parseInt(selectedSubject) : undefined,
         school_level_id: parseInt(formData.schoolLevel),
         form_grade_id: parseInt(formData.form),
         term_id: parseInt(formData.term),
@@ -161,6 +255,9 @@ export default function SchemeOfWorkPage() {
         progress: 100,
         content: {
           form_data: formData,
+          selected_subject: selectedSubject,
+          selected_topics: selectedTopics,
+          selected_subtopics: selectedSubtopics,
           step_completed: 'school_details'
         },
         scheme_metadata: {
@@ -176,11 +273,10 @@ export default function SchemeOfWorkPage() {
           body: JSON.stringify(schemeData),
         }
       );
-      
       if (response) {
         console.log('Scheme saved successfully:', response);
         localStorage.setItem('currentSchemeId', response.data.id.toString())
-        localStorage.setItem('schemeFormData', JSON.stringify(formData))
+        localStorage.setItem('schemeFormData', JSON.stringify({ ...formData, selectedSubject, selectedTopics, selectedSubtopics }))
         router.push('/dashboard/timetable');
       }
     } catch (error: any) {
@@ -365,8 +461,93 @@ export default function SchemeOfWorkPage() {
               {errors.term && <p className="text-sm text-red-600">{errors.term}</p>}
             </div>
 
+
+            {/* Subject Selection */}
+            {formData.term && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">
+                  Subject <span className="text-red-500">*</span>
+                </Label>
+                <Select
+                  value={selectedSubject}
+                  onValueChange={(value) => setSelectedSubject(value)}
+                  disabled={subjects.length === 0}
+                >
+                  <SelectTrigger className={errors.subject ? 'border-red-300' : ''}>
+                    <SelectValue placeholder="Select subject" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {subjects.map((subject) => (
+                      <SelectItem key={subject.id} value={subject.id.toString()}>
+                        <div className="flex items-center space-x-2">
+                          <span>{subject.name}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {errors.subject && <p className="text-sm text-red-600">{errors.subject}</p>}
+              </div>
+            )}
+
+            {/* Topic Selection */}
+            {selectedSubject && topics.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">
+                  Topics <span className="text-red-500">*</span>
+                </Label>
+                <div className="flex flex-wrap gap-2">
+                  {topics.map((topic) => (
+                    <Badge
+                      key={topic.id}
+                      className={selectedTopics.includes(topic.id.toString()) ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-700'}
+                      onClick={() => {
+                        setSelectedTopics((prev) =>
+                          prev.includes(topic.id.toString())
+                            ? prev.filter((id) => id !== topic.id.toString())
+                            : [topic.id.toString()] // Only allow one for now for subtopic fetch
+                        )
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {topic.name}
+                    </Badge>
+                  ))}
+                </div>
+                {errors.topics && <p className="text-sm text-red-600">{errors.topics}</p>}
+              </div>
+            )}
+
+            {/* Subtopic Selection */}
+            {selectedTopics.length === 1 && subtopics.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">
+                  Subtopics <span className="text-red-500">*</span>
+                </Label>
+                <div className="flex flex-wrap gap-2">
+                  {subtopics.map((subtopic) => (
+                    <Badge
+                      key={subtopic.id}
+                      className={selectedSubtopics.includes(subtopic.id.toString()) ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-700'}
+                      onClick={() => {
+                        setSelectedSubtopics((prev) =>
+                          prev.includes(subtopic.id.toString())
+                            ? prev.filter((id) => id !== subtopic.id.toString())
+                            : [...prev, subtopic.id.toString()]
+                        )
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {subtopic.name}
+                    </Badge>
+                  ))}
+                </div>
+                {errors.subtopics && <p className="text-sm text-red-600">{errors.subtopics}</p>}
+              </div>
+            )}
+
             {/* Summary */}
-            {formData.schoolLevel && formData.form && formData.term && (
+            {formData.schoolLevel && formData.form && formData.term && selectedSubject && (
               <div className="mt-6 p-4 bg-emerald-50 rounded-lg">
                 <h3 className="font-medium text-emerald-900 mb-2">Summary</h3>
                 <div className="space-y-1 text-sm text-emerald-700">
@@ -374,6 +555,9 @@ export default function SchemeOfWorkPage() {
                   <p><strong>Level:</strong> {getSchoolLevelName(formData.schoolLevel)}</p>
                   <p><strong>Form:</strong> {getFormName(formData.form)}</p>
                   <p><strong>Term:</strong> {getTermName(formData.term)}</p>
+                  <p><strong>Subject:</strong> {subjects.find(s => s.id.toString() === selectedSubject)?.name || ''}</p>
+                  {selectedTopics.length > 0 && <p><strong>Topics:</strong> {topics.filter(t => selectedTopics.includes(t.id.toString())).map(t => t.name).join(', ')}</p>}
+                  {selectedSubtopics.length > 0 && <p><strong>Subtopics:</strong> {subtopics.filter(st => selectedSubtopics.includes(st.id.toString())).map(st => st.name).join(', ')}</p>}
                 </div>
               </div>
             )}

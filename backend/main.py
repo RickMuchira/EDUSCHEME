@@ -175,7 +175,7 @@ async def create_scheme(
        return schemas.ResponseWrapper(
            success=True,
            message="Scheme created successfully",
-           data=db_scheme
+           data=schemas.SchemeOfWork.model_validate(db_scheme)
        )
    except HTTPException as he:
        logger.error(f"HTTP Exception: {he.detail}")
@@ -215,7 +215,7 @@ async def get_user_schemes(
        return schemas.ResponseWrapper(
            success=True,
            message="Schemes retrieved successfully",
-           data=schemes,
+           data=[schemas.SchemeOfWork.model_validate(s) for s in schemes],
            total=len(schemes)
        )
    except Exception as e:
@@ -243,7 +243,7 @@ async def get_scheme(
        return schemas.ResponseWrapper(
            success=True,
            message="Scheme retrieved successfully",
-           data=scheme
+           data=schemas.SchemeOfWork.model_validate(scheme)
        )
    except Exception as e:
        return schemas.ResponseWrapper(
@@ -272,7 +272,7 @@ async def update_scheme(
        return schemas.ResponseWrapper(
            success=True,
            message="Scheme updated successfully",
-           data=updated_scheme
+           data=schemas.SchemeOfWork.model_validate(updated_scheme)
        )
    except Exception as e:
        return schemas.ResponseWrapper(

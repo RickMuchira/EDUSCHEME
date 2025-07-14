@@ -1,7 +1,7 @@
 // File: frontend/src/lib/api.ts
 // FULLY UPDATED API client with ALL backend endpoints
 
-import apiClient from './apiClient';
+import apiClient, { ApiClient as ApiClientClass } from './apiClient';
 
 interface ApiResponse<T = any> {
   success: boolean
@@ -26,76 +26,7 @@ interface SchemeOfWorkCreate {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-export class ApiClient {
-  private baseURL: string;
-  
-  constructor() {
-    this.baseURL = API_BASE_URL;
-  }
-
-  async request(endpoint: string, options: RequestInit = {}) {
-    const url = `${this.baseURL}${endpoint}`;
-    
-    try {
-      const response = await fetch(url, {
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
-        ...options,
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      return await response.json();
-    } catch (error: any) {
-      console.error('API request failed:', error);
-      // Check if it's a connection error
-      if (error instanceof TypeError && error.message.includes('fetch')) {
-        throw new Error('Cannot connect to backend server. Make sure your FastAPI server is running on localhost:8000');
-      }
-      throw error;
-    }
-  }
-
-  async createScheme(scheme: SchemeOfWorkCreate, userGoogleId: string): Promise<ApiResponse<any>> {
-    // Validate required fields
-    const requiredFields = ['school_name', 'subject_name', 'school_level_id', 'form_grade_id', 'term_id']
-    for (const field of requiredFields) {
-      if (!(field in scheme) || scheme[field as keyof SchemeOfWorkCreate] === undefined || scheme[field as keyof SchemeOfWorkCreate] === null) {
-        throw new Error(`Missing required field: ${field}`)
-      }
-    }
-    // Validate types
-    if (typeof scheme.school_name !== 'string' || !scheme.school_name.trim()) throw new Error('school_name must be a non-empty string')
-    if (typeof scheme.subject_name !== 'string' || !scheme.subject_name.trim()) throw new Error('subject_name must be a non-empty string')
-    if (typeof scheme.school_level_id !== 'number' || !Number.isInteger(scheme.school_level_id) || scheme.school_level_id < 1) throw new Error('school_level_id must be a positive integer')
-    if (typeof scheme.form_grade_id !== 'number' || !Number.isInteger(scheme.form_grade_id) || scheme.form_grade_id < 1) throw new Error('form_grade_id must be a positive integer')
-    if (typeof scheme.term_id !== 'number' || !Number.isInteger(scheme.term_id) || scheme.term_id < 1) throw new Error('term_id must be a positive integer')
-    // Only send allowed fields
-    const payload: SchemeOfWorkCreate = {
-      school_name: scheme.school_name.trim(),
-      subject_name: scheme.subject_name.trim(),
-      school_level_id: scheme.school_level_id,
-      form_grade_id: scheme.form_grade_id,
-      term_id: scheme.term_id,
-    }
-    if (scheme.status) payload.status = scheme.status
-    if (typeof scheme.progress === 'number') payload.progress = scheme.progress
-    if (scheme.content) payload.content = scheme.content
-    if (scheme.scheme_metadata) payload.scheme_metadata = scheme.scheme_metadata
-    if (typeof scheme.subject_id === 'number') payload.subject_id = scheme.subject_id
-    if (scheme.due_date) payload.due_date = scheme.due_date
-    return this.request<any>(`/api/schemes?user_google_id=${encodeURIComponent(userGoogleId)}`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    })
-  }
-}
-
-export const apiClient = new ApiClient();
+// Removed duplicate ApiClient class and instance. Use apiClient from apiClient.ts
 
 // Types
 export interface SchoolLevel {
@@ -171,33 +102,49 @@ export interface SchemeResponse {
 
 // API functions
 export const schoolLevelApi = {
-  getAll: (includeRelations = true): Promise<SchoolLevel[]> =>
-    apiClient.get('/api/school-levels', { include_relations: includeRelations }),
+  getAll: async (includeRelations = true): Promise<SchoolLevel[]> => {
+    const response = await apiClient.get('/api/school-levels', { include_relations: includeRelations });
+    if (Array.isArray(response)) {
+      return response;
+    } else if (response && response.success && Array.isArray(response.data)) {
+      return response.data;
+    } else {
+      return [];
+    }
+  },
 
-  getById: (id: number, includeRelations = true): Promise<SchoolLevel> =>
-    apiClient.get(`/api/school-levels/${id}`, { include_relations: includeRelations }),
+  getById: async (id: number, includeRelations = true): Promise<SchoolLevel | null> => {
+    const response = await apiClient.get(`/api/school-levels/${id}`, { include_relations: includeRelations });
+    if (response && response.success && response.data) {
+      return response.data;
+    } else if (response && response.id) {
+      return response;
+    } else {
+      return null;
+    }
+  },
 };
 
 export const formGradeApi = {
-  getAll: (): Promise<FormGrade[]> =>
-    apiClient.get('/api/form-grades'),
+  getAll: (params?: any): Promise<any> =>
+    apiClient.get('/api/v1/admin/forms-grades', params),
 
-  getById: (id: number): Promise<FormGrade> =>
-    apiClient.get(`/api/form-grades/${id}`),
+  getById: (id: number): Promise<any> =>
+    apiClient.get(`/api/v1/admin/forms-grades/${id}`),
 
-  getBySchoolLevel: (schoolLevelId: number): Promise<FormGrade[]> =>
-    apiClient.get('/api/form-grades', { school_level_id: schoolLevelId }),
+  getBySchoolLevel: (schoolLevelId: number): Promise<any> =>
+    apiClient.get('/api/v1/admin/forms-grades', { school_level_id: schoolLevelId }),
 };
 
 export const termApi = {
-  getAll: (): Promise<Term[]> =>
-    apiClient.get('/api/terms'),
+  getAll: (params?: any): Promise<any> =>
+    apiClient.get('/api/v1/admin/terms', params),
 
-  getById: (id: number): Promise<Term> =>
-    apiClient.get(`/api/terms/${id}`),
+  getById: (id: number): Promise<any> =>
+    apiClient.get(`/api/v1/admin/terms/${id}`),
 
-  getByFormGrade: (formGradeId: number): Promise<Term[]> =>
-    apiClient.get('/api/terms', { form_grade_id: formGradeId }),
+  getByFormGrade: (formGradeId: number): Promise<any> =>
+    apiClient.get('/api/v1/admin/terms', { form_grade_id: formGradeId }),
 };
 
 export const schemeApi = {
@@ -252,51 +199,44 @@ export const userApi = {
 // Subject API - Required by your page  
 export const subjectApi = {
   async getAll(params?: { term_id?: number; include_inactive?: boolean }): Promise<any> {
-    console.log('subjectApi.getAll called with params:', params)
-    
-    // Mock response for now since backend doesn't have this endpoint yet
-    if (params?.term_id) {
-      const mockSubjects = [
-        { id: 1, name: "Mathematics", code: "MATH", display_order: 1, term_id: params.term_id, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-        { id: 2, name: "English", code: "ENG", display_order: 2, term_id: params.term_id, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-        { id: 3, name: "Science", code: "SCI", display_order: 3, term_id: params.term_id, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-        { id: 4, name: "Social Studies", code: "SST", display_order: 4, term_id: params.term_id, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
-      ]
-      
-      return {
-        success: true,
-        message: "Subjects retrieved successfully",
-        data: mockSubjects
-      }
-    }
-    
-    return {
-      success: true,
-      message: "No subjects found", 
-      data: []
-    }
+    // Real backend call
+    return apiClient.get('/api/v1/admin/subjects', params)
   },
 
   async getById(id: number): Promise<any> {
-    return {
-      success: true,
-      message: "Subject retrieved",
-      data: {
-        id,
-        name: `Subject ${id}`,
-        code: `SUB${id}`,
-        description: `Subject ${id} description`,
-        display_order: id,
-        term_id: 1,
-        is_active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }
-    }
+    return apiClient.get(`/api/v1/admin/subjects/${id}`)
   },
 
   async getByTerm(termId: number, includeInactive: boolean = false): Promise<any> {
-    return this.getAll({ term_id: termId, include_inactive: includeInactive })
+    return apiClient.get('/api/v1/admin/subjects', { term_id: termId, include_inactive: includeInactive })
+  }
+}
+
+export const topicApi = {
+  async getAll(params?: { subject_id?: number; search?: string; skip?: number; limit?: number }): Promise<any> {
+    return apiClient.get('/api/v1/admin/topics', params)
+  },
+
+  async getById(id: number): Promise<any> {
+    return apiClient.get(`/api/v1/admin/topics/${id}`)
+  },
+
+  async getBySubject(subjectId: number): Promise<any> {
+    return apiClient.get('/api/v1/admin/topics', { subject_id: subjectId })
+  }
+}
+
+export const subtopicApi = {
+  async getAll(params?: { topic_id?: number; search?: string; skip?: number; limit?: number }): Promise<any> {
+    return apiClient.get('/api/v1/admin/subtopics', params)
+  },
+
+  async getById(id: number): Promise<any> {
+    return apiClient.get(`/api/v1/admin/subtopics/${id}`)
+  },
+
+  async getByTopic(topicId: number): Promise<any> {
+    return apiClient.get('/api/v1/admin/subtopics', { topic_id: topicId })
   }
 }
 

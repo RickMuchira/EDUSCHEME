@@ -26,18 +26,19 @@ import QuickTemplates from './components/QuickTemplates'
 import { useTimetableState } from './hooks/useTimetableState'
 import { useTimetableAnalytics } from './hooks/useTimetableAnalytics'
 import { TimetableData, LessonSlot } from './types/timetable'
-import { schemesApi } from '@/lib/api'
+import { subjectApi } from '@/lib/api'
 import { useSession } from 'next-auth/react'
 
 export default function TimetablePage() {
   const { data: session } = useSession()
   const [schemeData, setSchemeData] = useState<any>(null)
   const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
+  const [currentSubject, setCurrentSubject] = useState<any>(null)
   const {
     timetableData,
     selectedSlots,
-    currentSubject,
-    setCurrentSubject,
+    currentSubject: currentSubjectState,
+    setCurrentSubject: setCurrentSubjectState,
     addSlot,
     removeSlot,
     createDoubleLesson,
@@ -65,11 +66,8 @@ export default function TimetablePage() {
           const parsedData = JSON.parse(savedSchemeData)
           setSchemeData(parsedData)
           // Fetch subjects for the selected form and term
-          if (parsedData.form && parsedData.term) {
-            const subjectsResponse = await schemesApi.getSubjectsForScheme(
-              parseInt(parsedData.form),
-              parseInt(parsedData.term)
-            )
+          if (parsedData.term) {
+            const subjectsResponse = await subjectApi.getByTerm(parseInt(parsedData.term))
             if (subjectsResponse.success) {
               setAvailableSubjects(subjectsResponse.data)
             }
@@ -83,6 +81,8 @@ export default function TimetablePage() {
       loadSchemeData()
     }
   }, [session])
+
+  // No topic/subtopic logic needed for timetable page
 
   // Auto-save every 30 seconds
   useEffect(() => {
@@ -101,15 +101,16 @@ export default function TimetablePage() {
 
   const handleSlotClick = useCallback((slot: LessonSlot) => {
     if (!currentSubject) {
-      // Show subject selection modal
       setShowSubjectModal(true)
       return
     }
-
     if (selectedSlots.some(s => s.day === slot.day && s.timeSlot === slot.timeSlot)) {
       removeSlot(slot)
     } else {
-      addSlot({ ...slot, subject: currentSubject })
+      addSlot({
+        ...slot,
+        subject: currentSubject
+      })
     }
   }, [currentSubject, selectedSlots, addSlot, removeSlot])
 
@@ -268,26 +269,38 @@ export default function TimetablePage() {
       <Dialog open={showSubjectModal} onOpenChange={setShowSubjectModal}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Select a Subject</DialogTitle>
+            <DialogTitle>Select Subject</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            {availableSubjects.length === 0 && (
-              <div className="text-gray-500 text-center py-4">No subjects available for this scheme.</div>
-            )}
-            {availableSubjects.map((subject) => (
+            {/* Subject Selection */}
+            <div>
+              <div className="font-semibold mb-1">Subject</div>
+              {availableSubjects.length === 0 && (
+                <div className="text-gray-500 text-center py-2">No subjects available for this scheme.</div>
+              )}
+              {availableSubjects.map((subject) => (
+                <Button
+                  key={subject.id}
+                  variant={currentSubject?.id === subject.id ? "default" : "outline"}
+                  className="w-full flex items-center justify-between mb-1"
+                  onClick={() => setCurrentSubject(subject)}
+                >
+                  <span>{subject.name}</span>
+                  <span className="text-xs text-gray-400">{subject.code}</span>
+                </Button>
+              ))}
+            </div>
+            {/* Confirm Selection Button */}
+            {currentSubject && (
               <Button
-                key={subject.id}
-                variant="outline"
-                className="w-full flex items-center justify-between"
+                className="w-full mt-2"
                 onClick={() => {
-                  setCurrentSubject(subject)
                   setShowSubjectModal(false)
                 }}
               >
-                <span>{subject.name}</span>
-                <span className="text-xs text-gray-400">{subject.code}</span>
+                Confirm Selection
               </Button>
-            ))}
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -299,4 +312,4 @@ export default function TimetablePage() {
 // ✅ Smart State Management - No lost work with auto-save
 // ✅ Progressive Enhancement - Works beautifully on mobile
 // ✅ Accessibility First - Keyboard navigation & screen readers
-// ✅ AI-Powered Insights - Real-time pattern analysis 
+// ✅ AI-Powered Insights - Real-time pattern analysis

@@ -14,11 +14,27 @@ export interface Subject {
   description?: string
 }
 
+export interface Topic {
+  id: number
+  name: string
+  code: string
+  description?: string
+}
+
+export interface Subtopic {
+  id: number
+  name: string
+  code: string
+  description?: string
+}
+
 export interface LessonSlot {
   day: string
   timeSlot: string
   period: number
   subject: Subject | null
+  topic?: Topic | null
+  subtopic?: Subtopic | null
   isDoubleLesson?: boolean
   doublePosition?: 'top' | 'bottom'
   isEvening?: boolean
