@@ -492,11 +492,20 @@ class SchemeOfWorkCRUD:
         return query.offset(skip).limit(limit).all()
     
     def create(self, db: Session, obj_in: Dict[str, Any]) -> SchemeOfWork:
-        db_obj = SchemeOfWork(**obj_in)
-        db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
-        return db_obj
+        try:
+            # Ensure JSON fields are properly handled
+            if 'content' in obj_in and obj_in['content'] is None:
+                obj_in['content'] = {}
+            if 'scheme_metadata' in obj_in and obj_in['scheme_metadata'] is None:
+                obj_in['scheme_metadata'] = {}
+            db_obj = SchemeOfWork(**obj_in)
+            db.add(db_obj)
+            db.commit()
+            db.refresh(db_obj)
+            return db_obj
+        except Exception as e:
+            db.rollback()
+            raise e
     
     def update(self, db: Session, db_obj: SchemeOfWork, obj_in: schemas.SchemeOfWorkUpdate) -> SchemeOfWork:
         obj_data = obj_in.dict(exclude_unset=True)

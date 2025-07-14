@@ -41,6 +41,7 @@ class User(UserBase):
 # ============= SCHEME OF WORK SCHEMAS =============
 
 class SchemeOfWorkBase(BaseSchema):
+    title: str = Field(..., min_length=1, max_length=255, description="Scheme title")
     school_name: str = Field(..., min_length=1, max_length=255, description="School name")
     subject_name: str = Field(..., min_length=1, max_length=150, description="Subject name")
     status: str = Field(default="draft", description="Scheme status")

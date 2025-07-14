@@ -11,6 +11,9 @@ import logging
 import os
 from database import create_tables, get_db
 import crud, models, schemas
+from fastapi.exception_handlers import RequestValidationError
+from fastapi.exceptions import RequestValidationError
+from fastapi import Request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -59,6 +62,19 @@ async def global_exception_handler(request, exc):
             "message": "Internal server error",
             "detail": "An unexpected error occurred"
         }
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error(f"Validation error: {exc.errors()}")
+    try:
+        body = await request.body()
+        logger.error(f"Request body: {body}")
+    except Exception as e:
+        logger.error(f"Could not read request body: {e}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
     )
 
 # Startup event
@@ -136,7 +152,7 @@ async def update_current_user(
 
 # ============= SCHEME OF WORK ENDPOINTS =============
 
-@app.post("/api/schemes", response_model=schemas.SchemeOfWork, tags=["Schemes"])
+@app.post("/api/schemes", response_model=schemas.ResponseWrapper, tags=["Schemes"])
 async def create_scheme(
    scheme: schemas.SchemeOfWorkCreate,
    user_google_id: str = Query(..., description="User's Google ID"),
@@ -144,22 +160,40 @@ async def create_scheme(
 ):
    """Create a new scheme of work"""
    try:
-       # Get user
+       logger.info(f"Creating scheme for user: {user_google_id}")
+       logger.info(f"Scheme data: {scheme.dict()}")
        user = crud.user.get_by_google_id(db, google_id=user_google_id)
        if not user:
+           logger.error(f"User not found: {user_google_id}")
            raise HTTPException(status_code=404, detail="User not found")
-       
-       # Create scheme
+       logger.info(f"Found user: {user.id} - {user.email}")
        scheme_data = scheme.dict()
        scheme_data["user_id"] = user.id
-       
+       logger.info(f"Creating scheme with data: {scheme_data}")
        db_scheme = crud.scheme.create(db=db, obj_in=scheme_data)
-       return db_scheme
+       logger.info(f"Scheme created successfully: {db_scheme.id}")
+       return schemas.ResponseWrapper(
+           success=True,
+           message="Scheme created successfully",
+           data=db_scheme
+       )
+   except HTTPException as he:
+       logger.error(f"HTTP Exception: {he.detail}")
+       return schemas.ResponseWrapper(
+           success=False,
+           message=he.detail,
+           data=None
+       )
    except Exception as e:
-       logger.error(f"Error creating scheme: {str(e)}")
-       raise HTTPException(status_code=400, detail=str(e))
+       logger.error(f"Error creating scheme: {type(e).__name__}: {str(e)}")
+       logger.exception("Full exception details:")
+       return schemas.ResponseWrapper(
+           success=False,
+           message=f"Failed to create scheme: {type(e).__name__}: {str(e)}",
+           data=None
+       )
 
-@app.get("/api/schemes", response_model=List[schemas.SchemeOfWork], tags=["Schemes"])
+@app.get("/api/schemes", response_model=schemas.ResponseWrapper, tags=["Schemes"])
 async def get_user_schemes(
    user_google_id: str = Query(..., description="User's Google ID"),
    status: Optional[str] = Query(None, description="Filter by status"),
@@ -167,82 +201,113 @@ async def get_user_schemes(
    limit: int = Query(100, ge=1, le=100, description="Number of schemes to return"),
    db: Session = Depends(get_db)
 ):
-   """Get user's schemes of work"""
-   user = crud.user.get_by_google_id(db, google_id=user_google_id)
-   if not user:
-       raise HTTPException(status_code=404, detail="User not found")
-   
-   schemes = crud.scheme.get_by_user(
-       db=db, 
-       user_id=user.id, 
-       status=status, 
-       skip=skip, 
-       limit=limit
-   )
-   return schemes
+   try:
+       user = crud.user.get_by_google_id(db, google_id=user_google_id)
+       if not user:
+           raise HTTPException(status_code=404, detail="User not found")
+       schemes = crud.scheme.get_by_user(
+           db=db, 
+           user_id=user.id, 
+           status=status, 
+           skip=skip, 
+           limit=limit
+       )
+       return schemas.ResponseWrapper(
+           success=True,
+           message="Schemes retrieved successfully",
+           data=schemes,
+           total=len(schemes)
+       )
+   except Exception as e:
+       return schemas.ResponseWrapper(
+           success=False,
+           message=str(e),
+           data=None
+       )
 
-@app.get("/api/schemes/{scheme_id}", response_model=schemas.SchemeOfWork, tags=["Schemes"])
+@app.get("/api/schemes/{scheme_id}", response_model=schemas.ResponseWrapper, tags=["Schemes"])
 async def get_scheme(
    scheme_id: int = Path(..., description="Scheme ID"),
    user_google_id: str = Query(..., description="User's Google ID"),
    db: Session = Depends(get_db)
 ):
-   """Get a specific scheme of work"""
-   user = crud.user.get_by_google_id(db, google_id=user_google_id)
-   if not user:
-       raise HTTPException(status_code=404, detail="User not found")
-   
-   scheme = crud.scheme.get(db=db, id=scheme_id)
-   if not scheme:
-       raise HTTPException(status_code=404, detail="Scheme not found")
-   
-   if scheme.user_id != user.id:
-       raise HTTPException(status_code=403, detail="Not authorized to access this scheme")
-   
-   return scheme
+   try:
+       user = crud.user.get_by_google_id(db, google_id=user_google_id)
+       if not user:
+           raise HTTPException(status_code=404, detail="User not found")
+       scheme = crud.scheme.get(db=db, id=scheme_id)
+       if not scheme:
+           raise HTTPException(status_code=404, detail="Scheme not found")
+       if scheme.user_id != user.id:
+           raise HTTPException(status_code=403, detail="Not authorized to access this scheme")
+       return schemas.ResponseWrapper(
+           success=True,
+           message="Scheme retrieved successfully",
+           data=scheme
+       )
+   except Exception as e:
+       return schemas.ResponseWrapper(
+           success=False,
+           message=str(e),
+           data=None
+       )
 
-@app.put("/api/schemes/{scheme_id}", response_model=schemas.SchemeOfWork, tags=["Schemes"])
+@app.put("/api/schemes/{scheme_id}", response_model=schemas.ResponseWrapper, tags=["Schemes"])
 async def update_scheme(
    scheme_update: schemas.SchemeOfWorkUpdate,
    scheme_id: int = Path(..., description="Scheme ID"),
    user_google_id: str = Query(..., description="User's Google ID"),
    db: Session = Depends(get_db)
 ):
-   """Update a scheme of work"""
-   user = crud.user.get_by_google_id(db, google_id=user_google_id)
-   if not user:
-       raise HTTPException(status_code=404, detail="User not found")
-   
-   scheme = crud.scheme.get(db=db, id=scheme_id)
-   if not scheme:
-       raise HTTPException(status_code=404, detail="Scheme not found")
-   
-   if scheme.user_id != user.id:
-       raise HTTPException(status_code=403, detail="Not authorized to update this scheme")
-   
-   updated_scheme = crud.scheme.update(db=db, db_obj=scheme, obj_in=scheme_update)
-   return updated_scheme
+   try:
+       user = crud.user.get_by_google_id(db, google_id=user_google_id)
+       if not user:
+           raise HTTPException(status_code=404, detail="User not found")
+       scheme = crud.scheme.get(db=db, id=scheme_id)
+       if not scheme:
+           raise HTTPException(status_code=404, detail="Scheme not found")
+       if scheme.user_id != user.id:
+           raise HTTPException(status_code=403, detail="Not authorized to update this scheme")
+       updated_scheme = crud.scheme.update(db=db, db_obj=scheme, obj_in=scheme_update)
+       return schemas.ResponseWrapper(
+           success=True,
+           message="Scheme updated successfully",
+           data=updated_scheme
+       )
+   except Exception as e:
+       return schemas.ResponseWrapper(
+           success=False,
+           message=str(e),
+           data=None
+       )
 
-@app.delete("/api/schemes/{scheme_id}", tags=["Schemes"])
+@app.delete("/api/schemes/{scheme_id}", response_model=schemas.ResponseWrapper, tags=["Schemes"])
 async def delete_scheme(
    scheme_id: int = Path(..., description="Scheme ID"),
    user_google_id: str = Query(..., description="User's Google ID"),
    db: Session = Depends(get_db)
 ):
-   """Delete a scheme of work"""
-   user = crud.user.get_by_google_id(db, google_id=user_google_id)
-   if not user:
-       raise HTTPException(status_code=404, detail="User not found")
-   
-   scheme = crud.scheme.get(db=db, id=scheme_id)
-   if not scheme:
-       raise HTTPException(status_code=404, detail="Scheme not found")
-   
-   if scheme.user_id != user.id:
-       raise HTTPException(status_code=403, detail="Not authorized to delete this scheme")
-   
-   crud.scheme.remove(db=db, id=scheme_id)
-   return {"message": "Scheme deleted successfully"}
+   try:
+       user = crud.user.get_by_google_id(db, google_id=user_google_id)
+       if not user:
+           raise HTTPException(status_code=404, detail="User not found")
+       scheme = crud.scheme.get(db=db, id=scheme_id)
+       if not scheme:
+           raise HTTPException(status_code=404, detail="Scheme not found")
+       if scheme.user_id != user.id:
+           raise HTTPException(status_code=403, detail="Not authorized to delete this scheme")
+       crud.scheme.remove(db=db, id=scheme_id)
+       return schemas.ResponseWrapper(
+           success=True,
+           message="Scheme deleted successfully",
+           data=None
+       )
+   except Exception as e:
+       return schemas.ResponseWrapper(
+           success=False,
+           message=str(e),
+           data=None
+       )
 
 # ============= DASHBOARD STATS ENDPOINT =============
 

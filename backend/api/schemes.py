@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import logging
+import traceback
 
 # Use relative imports since we're in api/ subdirectory
 from ..database import get_db
@@ -32,6 +33,7 @@ async def create_scheme(
         return db_scheme
     except Exception as e:
         logger.error(f"Error creating scheme: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/latest", response_model=schemas.SchemeOfWork)
