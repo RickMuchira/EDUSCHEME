@@ -21,7 +21,7 @@ import {
   Loader2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { schoolLevelApi, schemeApi, formGradeApi, termApi, subjectApi, topicApi, subtopicApi } from '@/lib/api'
+import { schoolLevelApi, schemeApi, formGradeApi, termApi, subjectApi } from '@/lib/api'
 import apiClient from '@/lib/apiClient'
 
 
@@ -65,13 +65,9 @@ export default function SchemeOfWorkPage() {
   const [terms, setTerms] = useState<Term[]>([])
   const [errors, setErrors] = useState<{ [key: string]: string }>({})
 
-  // Subject, topic, subtopic cascading selection
+  // Subject cascading selection
   const [subjects, setSubjects] = useState<any[]>([])
-  const [topics, setTopics] = useState<any[]>([])
-  const [subtopics, setSubtopics] = useState<any[]>([])
   const [selectedSubject, setSelectedSubject] = useState<string>('')
-  const [selectedTopics, setSelectedTopics] = useState<string[]>([])
-  const [selectedSubtopics, setSelectedSubtopics] = useState<string[]>([])
 
   const [formData, setFormData] = useState({
     schoolName: '',
@@ -141,46 +137,8 @@ export default function SchemeOfWorkPage() {
         console.log('subjects: error', err)
       })
       setSelectedSubject('')
-      setTopics([])
-      setSelectedTopics([])
-      setSubtopics([])
-      setSelectedSubtopics([])
     }
   }, [formData.term])
-
-  // Fetch topics when subject changes
-  useEffect(() => {
-    if (selectedSubject) {
-      topicApi.getBySubject(parseInt(selectedSubject)).then(response => {
-        if (response.success && response.data) {
-          setTopics(response.data)
-        } else {
-          setTopics([])
-        }
-      }).catch(() => setTopics([]))
-      setSelectedTopics([])
-      setSubtopics([])
-      setSelectedSubtopics([])
-    }
-  }, [selectedSubject])
-
-  // Fetch subtopics when topics change
-  useEffect(() => {
-    if (selectedTopics.length === 1) {
-      // Only fetch subtopics for single topic selection for now
-      subtopicApi.getByTopic(parseInt(selectedTopics[0])).then(response => {
-        if (response.success && response.data) {
-          setSubtopics(response.data)
-        } else {
-          setSubtopics([])
-        }
-      }).catch(() => setSubtopics([]))
-      setSelectedSubtopics([])
-    } else {
-      setSubtopics([])
-      setSelectedSubtopics([])
-    }
-  }, [selectedTopics])
 
   const fetchSchoolLevels = async () => {
     try {
@@ -220,12 +178,6 @@ export default function SchemeOfWorkPage() {
     if (!selectedSubject) {
       newErrors.subject = 'Please select a subject'
     }
-    if (topics.length > 0 && selectedTopics.length === 0) {
-      newErrors.topics = 'Please select at least one topic'
-    }
-    if (subtopics.length > 0 && selectedSubtopics.length === 0) {
-      newErrors.subtopics = 'Please select at least one subtopic'
-    }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -244,6 +196,11 @@ export default function SchemeOfWorkPage() {
     setErrors({ general: '' });
 
     try {
+      // Use Google ID from session (session.user.id)
+      const userGoogleId = session?.user?.id;
+      const userEmail = session?.user?.email;
+      const userName = session?.user?.name;
+      const userPicture = session?.user?.image;
       const schemeData = {
         school_name: formData.schoolName,
         subject_name: subjects.find(s => s.id.toString() === selectedSubject)?.name || '',
@@ -256,32 +213,35 @@ export default function SchemeOfWorkPage() {
         content: {
           form_data: formData,
           selected_subject: selectedSubject,
-          selected_topics: selectedTopics,
-          selected_subtopics: selectedSubtopics,
           step_completed: 'school_details'
         },
         scheme_metadata: {
           created_from: 'scheme_of_work_wizard',
           step: 1
-        }
+        },
+        user_email: userEmail,
+        user_name: userName,
+        user_picture: userPicture
       };
 
       const response = await apiClient.request(
-        `/api/schemes?user_google_id=${encodeURIComponent(session.user.email)}`,
+        `/api/schemes?user_google_id=${encodeURIComponent(userGoogleId)}`,
         {
           method: 'POST',
           body: JSON.stringify(schemeData),
         }
       );
-      if (response) {
+      if (response && response.data && response.data.id) {
         console.log('Scheme saved successfully:', response);
         localStorage.setItem('currentSchemeId', response.data.id.toString())
-        localStorage.setItem('schemeFormData', JSON.stringify({ ...formData, selectedSubject, selectedTopics, selectedSubtopics }))
+        localStorage.setItem('schemeFormData', JSON.stringify({ ...formData, selectedSubject }))
         router.push('/dashboard/timetable');
+      } else {
+        setErrors({ general: response?.message || 'Failed to save scheme. Please try again.' });
       }
     } catch (error: any) {
       console.error('Error saving scheme:', error);
-      if (error.message.includes('Cannot connect to backend server')) {
+      if (error.message && error.message.includes('Cannot connect to backend server')) {
         setErrors({ general: 'Cannot connect to backend server. Please make sure the FastAPI server is running on localhost:8000' });
       } else {
         setErrors({ general: error.message || 'Failed to save scheme. Please try again.' });
@@ -490,62 +450,6 @@ export default function SchemeOfWorkPage() {
               </div>
             )}
 
-            {/* Topic Selection */}
-            {selectedSubject && topics.length > 0 && (
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-gray-700">
-                  Topics <span className="text-red-500">*</span>
-                </Label>
-                <div className="flex flex-wrap gap-2">
-                  {topics.map((topic) => (
-                    <Badge
-                      key={topic.id}
-                      className={selectedTopics.includes(topic.id.toString()) ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-700'}
-                      onClick={() => {
-                        setSelectedTopics((prev) =>
-                          prev.includes(topic.id.toString())
-                            ? prev.filter((id) => id !== topic.id.toString())
-                            : [topic.id.toString()] // Only allow one for now for subtopic fetch
-                        )
-                      }}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      {topic.name}
-                    </Badge>
-                  ))}
-                </div>
-                {errors.topics && <p className="text-sm text-red-600">{errors.topics}</p>}
-              </div>
-            )}
-
-            {/* Subtopic Selection */}
-            {selectedTopics.length === 1 && subtopics.length > 0 && (
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-gray-700">
-                  Subtopics <span className="text-red-500">*</span>
-                </Label>
-                <div className="flex flex-wrap gap-2">
-                  {subtopics.map((subtopic) => (
-                    <Badge
-                      key={subtopic.id}
-                      className={selectedSubtopics.includes(subtopic.id.toString()) ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-700'}
-                      onClick={() => {
-                        setSelectedSubtopics((prev) =>
-                          prev.includes(subtopic.id.toString())
-                            ? prev.filter((id) => id !== subtopic.id.toString())
-                            : [...prev, subtopic.id.toString()]
-                        )
-                      }}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      {subtopic.name}
-                    </Badge>
-                  ))}
-                </div>
-                {errors.subtopics && <p className="text-sm text-red-600">{errors.subtopics}</p>}
-              </div>
-            )}
-
             {/* Summary */}
             {formData.schoolLevel && formData.form && formData.term && selectedSubject && (
               <div className="mt-6 p-4 bg-emerald-50 rounded-lg">
@@ -556,8 +460,6 @@ export default function SchemeOfWorkPage() {
                   <p><strong>Form:</strong> {getFormName(formData.form)}</p>
                   <p><strong>Term:</strong> {getTermName(formData.term)}</p>
                   <p><strong>Subject:</strong> {subjects.find(s => s.id.toString() === selectedSubject)?.name || ''}</p>
-                  {selectedTopics.length > 0 && <p><strong>Topics:</strong> {topics.filter(t => selectedTopics.includes(t.id.toString())).map(t => t.name).join(', ')}</p>}
-                  {selectedSubtopics.length > 0 && <p><strong>Subtopics:</strong> {subtopics.filter(st => selectedSubtopics.includes(st.id.toString())).map(st => st.name).join(', ')}</p>}
                 </div>
               </div>
             )}

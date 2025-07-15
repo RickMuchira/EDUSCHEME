@@ -58,6 +58,9 @@ class SchemeOfWorkCreate(SchemeOfWorkBase):
     term_id: int = Field(..., gt=0, description="Term ID")
     subject_id: Optional[int] = Field(None, gt=0, description="Subject ID")
     due_date: Optional[datetime] = Field(None, description="Due date")
+    user_email: Optional[str] = None
+    user_name: Optional[str] = None
+    user_picture: Optional[str] = None
 
 class SchemeOfWorkUpdate(BaseSchema):
     school_name: Optional[str] = Field(None, min_length=1, max_length=255)

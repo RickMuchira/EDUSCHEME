@@ -493,12 +493,15 @@ class SchemeOfWorkCRUD:
     
     def create(self, db: Session, obj_in: Dict[str, Any]) -> SchemeOfWork:
         try:
+            # Remove keys that are not columns in the model
+            allowed_keys = {c.name for c in SchemeOfWork.__table__.columns}
+            filtered_obj_in = {k: v for k, v in obj_in.items() if k in allowed_keys}
             # Ensure JSON fields are properly handled
-            if 'content' in obj_in and obj_in['content'] is None:
-                obj_in['content'] = {}
-            if 'scheme_metadata' in obj_in and obj_in['scheme_metadata'] is None:
-                obj_in['scheme_metadata'] = {}
-            db_obj = SchemeOfWork(**obj_in)
+            if 'content' in filtered_obj_in and filtered_obj_in['content'] is None:
+                filtered_obj_in['content'] = {}
+            if 'scheme_metadata' in filtered_obj_in and filtered_obj_in['scheme_metadata'] is None:
+                filtered_obj_in['scheme_metadata'] = {}
+            db_obj = SchemeOfWork(**filtered_obj_in)
             db.add(db_obj)
             db.commit()
             db.refresh(db_obj)
