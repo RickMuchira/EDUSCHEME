@@ -24,13 +24,17 @@ import {
   List,
   Users,
   Building2,
-  Edit
+  Edit,
+  CheckCircle2,
+  Sparkles,
+  Info
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 import TimetableGrid from './components/TimetableGrid'
 import AnalysisPanel from './components/AnalysisPanel'
 import AITipsPanel from './components/AITipsPanel'
+import TimetableInstructions from './components/TimetableInstructions'
 import { useTimetableState } from './hooks/useTimetableState'
 import { useTimetableAnalytics } from './hooks/useTimetableAnalytics'
 import { TimetableData, LessonSlot } from './types/timetable'
@@ -50,6 +54,7 @@ export default function TimetablePage() {
   const [schoolLevelName, setSchoolLevelName] = useState<string>('')
   const [formName, setFormName] = useState<string>('')
   const [termName, setTermName] = useState<string>('')
+  const [showInstructions, setShowInstructions] = useState(true)
   
   const {
     timetableData,
@@ -81,16 +86,21 @@ export default function TimetablePage() {
         ? prev.filter(id => id !== topicId)
         : [...prev, topicId]
       
-      // Load subtopics for selected topics
-      if (!prev.includes(topicId)) {
-        loadSubtopicsForTopics([...prev, topicId])
-      } else {
-        // Remove subtopics of deselected topic
-        loadSubtopicsForTopics(newSelection)
-      }
-      
       return newSelection
     })
+
+    // Fetch subtopics for selected topics
+    try {
+      const subtopics = await subtopicApi.getByTopicId(topicId)
+      if (subtopics) {
+        setAvailableSubtopics(prev => {
+          const filtered = prev.filter(sub => sub.topic_id !== topicId)
+          return [...filtered, ...subtopics]
+        })
+      }
+    } catch (error) {
+      console.error('Error fetching subtopics:', error)
+    }
   }, [])
 
   // Toggle subtopic selection
@@ -102,502 +112,248 @@ export default function TimetablePage() {
     )
   }, [])
 
-  // Load subtopics for selected topics
-  const loadSubtopicsForTopics = async (topicIds: number[]) => {
-    try {
-      console.log('Loading subtopics for topic IDs:', topicIds)
-      const allSubtopics = []
-      for (const topicId of topicIds) {
-        const subtopicsResponse = await subtopicApi.getByTopic(topicId)
-        console.log(`Subtopics response for topic ${topicId}:`, subtopicsResponse)
-        
-        // Handle different response formats
-        let subtopicsData = []
-        if (subtopicsResponse.success && subtopicsResponse.data) {
-          subtopicsData = subtopicsResponse.data
-        } else if (Array.isArray(subtopicsResponse)) {
-          subtopicsData = subtopicsResponse
-        } else if (subtopicsResponse.data && Array.isArray(subtopicsResponse.data)) {
-          subtopicsData = subtopicsResponse.data
-        }
-        
-        if (subtopicsData.length > 0) {
-          allSubtopics.push(...subtopicsData)
-        }
-      }
-      console.log('All loaded subtopics:', allSubtopics)
-      setAvailableSubtopics(allSubtopics)
-      
-      // Clear selected subtopics that are no longer available
-      setSelectedSubtopicIds(prev => 
-        prev.filter(id => allSubtopics.some(st => st.id === id))
-      )
-    } catch (error) {
-      console.error('Error loading subtopics:', error)
-      setAvailableSubtopics([])
-    }
-  }
+  // Handle slot click
+  const handleSlotClick = useCallback((slot: LessonSlot) => {
+    const isCurrentlySelected = selectedSlots.some(
+      s => s.day === slot.day && s.timeSlot === slot.timeSlot
+    )
 
+    if (isCurrentlySelected) {
+      removeSlot(slot.day, slot.timeSlot)
+    } else {
+      addSlot({
+        ...slot,
+        subject: currentSubject,
+        topic: selectedTopicIds.length > 0 ? availableTopics.find(t => selectedTopicIds.includes(t.id)) : null,
+        subtopic: selectedSubtopicIds.length > 0 ? availableSubtopics.find(s => selectedSubtopicIds.includes(s.id)) : null
+      })
+    }
+  }, [selectedSlots, removeSlot, addSlot, currentSubject, selectedTopicIds, selectedSubtopicIds, availableTopics, availableSubtopics])
+
+  // Load available subjects on component mount
   useEffect(() => {
-    const loadSchemeData = async () => {
+    const loadSubjects = async () => {
       try {
-        // Get scheme data from localStorage first
-        const savedSchemeData = localStorage.getItem('schemeFormData')
-        if (savedSchemeData) {
-          const parsedData = JSON.parse(savedSchemeData)
-          console.log('Loaded scheme data:', parsedData)
-          setSchemeData(parsedData)
+        if (session?.user?.email) {
+          const subjects = await subjectApi.getAll()
+          setAvailableSubjects(subjects || [])
           
-          // Fetch subjects for the selected form and term
-          if (parsedData.term) {
-            const subjectsResponse = await subjectApi.getByTerm(parseInt(parsedData.term))
-            console.log('Subjects response:', subjectsResponse)
-            
-            if (subjectsResponse.success) {
-              setAvailableSubjects(subjectsResponse.data)
-              
-              // Auto-select the subject if one was selected in scheme
-              if (parsedData.selectedSubject) {
-                const selectedSubjectData = subjectsResponse.data.find(
-                  (subject: any) => subject.id.toString() === parsedData.selectedSubject
-                )
-                if (selectedSubjectData) {
-                  console.log('Setting current subject:', selectedSubjectData)
-                  setCurrentSubject(selectedSubjectData)
-                  
-                  // Load topics for this subject
-                  console.log('Loading topics for subject ID:', selectedSubjectData.id)
-                  const topicsResponse = await topicApi.getBySubject(selectedSubjectData.id)
-                  console.log('Topics response:', topicsResponse)
-                  
-                  // Handle different response formats
-                  let topicsData = []
-                  if (topicsResponse.success && topicsResponse.data) {
-                    topicsData = topicsResponse.data
-                  } else if (Array.isArray(topicsResponse)) {
-                    // Handle direct array response
-                    topicsData = topicsResponse
-                  } else if (topicsResponse.data && Array.isArray(topicsResponse.data)) {
-                    // Handle nested data array
-                    topicsData = topicsResponse.data
-                  }
-                  
-                  if (topicsData.length > 0) {
-                    console.log('Setting available topics:', topicsData)
-                    setAvailableTopics(topicsData)
-                    
-                    // Pre-select topics if they were in the scheme
-                    if (parsedData.selectedTopics && parsedData.selectedTopics.length > 0) {
-                      const topicIds = parsedData.selectedTopics.map((id: string) => parseInt(id))
-                      console.log('Pre-selecting topic IDs:', topicIds)
-                      setSelectedTopicIds(topicIds)
-                      loadSubtopicsForTopics(topicIds)
-                      
-                      // Pre-select subtopics if they were in the scheme
-                      if (parsedData.selectedSubtopics && parsedData.selectedSubtopics.length > 0) {
-                        const subtopicIds = parsedData.selectedSubtopics.map((id: string) => parseInt(id))
-                        console.log('Pre-selecting subtopic IDs:', subtopicIds)
-                        setSelectedSubtopicIds(subtopicIds)
-                      }
-                    }
-                  } else {
-                    console.log('No topics found or invalid response:', topicsResponse)
-                    setAvailableTopics([])
-                  }
-                }
-              }
-            } else {
-              console.log('Failed to load subjects:', subjectsResponse)
-              setAvailableSubjects([])
-            }
-          }
-          
-          // Load display names for breadcrumbs
-          if (parsedData.schoolLevel) {
-            try {
-              // You can implement these API calls if available
-              setSchoolLevelName('Secondary') // Fallback, replace with API call
-            } catch (error) {
-              console.warn('Could not load school level name')
-            }
-          }
-          
-          if (parsedData.form) {
-            try {
-              setFormName('Form 12') // Fallback, replace with API call
-            } catch (error) {
-              console.warn('Could not load form name')
-            }
-          }
-          
-          if (parsedData.term) {
-            try {
-              setTermName('Term 30') // Fallback, replace with API call
-            } catch (error) {
-              console.warn('Could not load term name')
-            }
+          if (subjects && subjects.length > 0 && !currentSubject) {
+            setCurrentSubject(subjects[0])
+            setCurrentSubjectState(subjects[0])
           }
         }
       } catch (error) {
-        console.error('Error loading scheme data:', error)
+        console.error('Error loading subjects:', error)
       }
     }
-    
-    if (session?.user?.email) {
-      loadSchemeData()
-    }
-  }, [session])
 
-  // Auto-save every 30 seconds
+    loadSubjects()
+  }, [session, currentSubject, setCurrentSubjectState])
+
+  // Load topics when current subject changes
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (selectedSlots.length > 0) {
-        saveToStorage()
+    const loadTopics = async () => {
+      if (currentSubject?.id) {
+        try {
+          const topics = await topicApi.getBySubjectId(currentSubject.id)
+          setAvailableTopics(topics || [])
+        } catch (error) {
+          console.error('Error loading topics:', error)
+        }
       }
-    }, 30000)
-    return () => clearInterval(interval)
-  }, [selectedSlots, saveToStorage])
-
-  const handleSlotClick = useCallback((day: string, period: number, timeSlot: string) => {
-    if (!currentSubject) {
-      // Show alert that subject context is missing
-      alert('No subject found in your scheme of work. Please check your scheme setup.')
-      return
     }
 
-    if (selectedTopicIds.length === 0 && selectedSubtopicIds.length === 0) {
-      // Show alert to select content first
-      alert('Please select at least one topic or subtopic to include in your timetable.')
-      return
+    loadTopics()
+  }, [currentSubject])
+
+  // Update analytics when selected slots change
+  useEffect(() => {
+    updateAnalytics()
+  }, [selectedSlots, updateAnalytics])
+
+  // Auto-hide instructions after user starts using the timetable
+  useEffect(() => {
+    if (selectedSlots.length > 2 && showInstructions) {
+      const timer = setTimeout(() => {
+        setShowInstructions(false)
+      }, 3000)
+      return () => clearTimeout(timer)
     }
-
-    const existingSlotIndex = selectedSlots.findIndex(
-      slot => slot.day === day && slot.period === period
-    )
-
-    if (existingSlotIndex >= 0) {
-      removeSlot(day, period)
-    } else {
-      // Get selected topic and subtopic names for timetable slots
-      const selectedTopicNames = availableTopics
-        .filter(topic => selectedTopicIds.includes(topic.id))
-        .map(topic => topic.title || `Topic #${topic.id}`)
-      
-      const selectedSubtopicNames = availableSubtopics
-        .filter(subtopic => selectedSubtopicIds.includes(subtopic.id))
-        .map(subtopic => subtopic.title || `Subtopic #${subtopic.id}`)
-
-      const newSlot: LessonSlot = {
-        id: `${day}-${period}-${Date.now()}`,
-        day,
-        period,
-        timeSlot,
-        subject: currentSubject.name,
-        subjectId: currentSubject.id,
-        duration: 40,
-        topics: selectedTopicNames,
-        subtopics: selectedSubtopicNames
-      }
-      addSlot(newSlot)
-    }
-  }, [currentSubject, selectedSlots, selectedTopicIds, selectedSubtopicIds, availableTopics, availableSubtopics, addSlot, removeSlot])
-
-  // Render context breadcrumbs
-  const renderContextBreadcrumbs = () => {
-    if (!schemeData) return null
-
-    const breadcrumbItems = []
-    
-    if (schemeData.schoolName) {
-      breadcrumbItems.push({
-        icon: Building2,
-        label: schemeData.schoolName,
-        type: 'school'
-      })
-    }
-    
-    if (schemeData.schoolLevel) {
-      breadcrumbItems.push({
-        icon: School,
-        label: getSchoolLevelName(schemeData.schoolLevel),
-        type: 'level'
-      })
-    }
-    
-    if (schemeData.form) {
-      breadcrumbItems.push({
-        icon: GraduationCap,
-        label: getFormName(schemeData.form),
-        type: 'form'
-      })
-    }
-    
-    if (schemeData.term) {
-      breadcrumbItems.push({
-        icon: Calendar,
-        label: getTermName(schemeData.term),
-        type: 'term'
-      })
-    }
-
-    return (
-      <div className="flex items-center space-x-2 text-sm">
-        {breadcrumbItems.map((item, index) => {
-          const Icon = item.icon
-          return (
-            <div key={index} className="flex items-center space-x-2">
-              <div className="flex items-center space-x-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-md">
-                <Icon className="h-3 w-3" />
-                <span className="font-medium">{item.label}</span>
-              </div>
-              {index < breadcrumbItems.length - 1 && (
-                <ChevronRight className="h-3 w-3 text-gray-400" />
-              )}
-            </div>
-          )
-        })}
-      </div>
-    )
-  }
-
-  // Helper functions for display names
-  const getSchoolLevelName = (id: string) => {
-    return schoolLevelName || 'Secondary'
-  }
-
-  const getFormName = (id: string) => {
-    return formName || 'Form 12'
-  }
-
-  const getTermName = (id: string) => {
-    return termName || 'Term 30'
-  }
+  }, [selectedSlots.length, showInstructions])
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-emerald-50 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-4 md:p-6">
       <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* Enhanced Header with Context */}
-        <div className="space-y-4">
-          {/* Breadcrumb Context */}
-          {schemeData && (
-            <div className="flex items-center justify-between">
-              <div className="space-y-2">
-                {renderContextBreadcrumbs()}
-                <div className="text-xs text-gray-500">
-                  Academic Context
-                </div>
-              </div>
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => setShowContextModal(true)}
-              >
-                <Edit className="h-3 w-3 mr-1" />
-                Edit Context
-              </Button>
-            </div>
-          )}
-
-          {/* Main Header */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="inline-flex items-center justify-center w-12 h-12 bg-gradient-to-br from-emerald-600 to-blue-600 rounded-full">
-                <Calendar className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900">Interactive Timetable Builder</h1>
-                <p className="text-gray-600">Design your perfect teaching schedule with AI-powered insights</p>
-              </div>
-            </div>
-            
-            {/* Status Badge */}
-            <div className="flex items-center space-x-3">
-              <Badge variant="secondary" className="bg-emerald-100 text-emerald-800 border-emerald-200">
-                <Clock className="h-3 w-3 mr-1" />
-                Workload: optimal
-              </Badge>
-              <Button variant="outline" size="sm" onClick={() => undo()} disabled={!canUndo}>
-                <Undo2 className="h-4 w-4 mr-1" />
+        {/* Header Section */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
+              Timetable Builder
+            </h1>
+            <p className="text-lg text-gray-600">
+              Create and optimize your weekly teaching schedule
+            </p>
+          </div>
+          
+          <div className="flex flex-wrap gap-3">
+            {canUndo && (
+              <Button variant="outline" onClick={undo} className="flex items-center gap-2">
+                <Undo2 className="h-4 w-4" />
                 Undo
               </Button>
-              <Button variant="outline" size="sm">
-                <RotateCcw className="h-4 w-4 mr-1" />
-                Clear All
-              </Button>
-              <Button className="bg-emerald-600 hover:bg-emerald-700">
-                <Save className="h-4 w-4 mr-1" />
-                Save Progress
-              </Button>
-            </div>
+            )}
+            <Button variant="outline" onClick={clearAll} className="flex items-center gap-2">
+              <RotateCcw className="h-4 w-4" />
+              Clear All
+            </Button>
+            <Button onClick={saveToStorage} className="flex items-center gap-2">
+              <Save className="h-4 w-4" />
+              Save
+            </Button>
           </div>
         </div>
 
-        {/* Topics and Subtopics Selection */}
-        {schemeData && (
-          <Card className="border-l-4 border-l-emerald-500 bg-white/90 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <BookOpen className="h-5 w-5 text-emerald-600" />
-                <span>Select Content for Your Timetable</span>
+        {/* Subject Selection */}
+        {availableSubjects.length > 0 && (
+          <Card className="border-blue-200 bg-white shadow-sm">
+            <CardContent className="pt-6">
+              <div className="flex flex-col md:flex-row md:items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="h-5 w-5 text-blue-600" />
+                  <span className="font-medium text-gray-700">Current Subject:</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {availableSubjects.map(subject => (
+                    <Button
+                      key={subject.id}
+                      variant={currentSubject?.id === subject.id ? "default" : "outline"}
+                      onClick={() => {
+                        setCurrentSubject(subject)
+                        setCurrentSubjectState(subject)
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <div 
+                        className="w-3 h-3 rounded-full" 
+                        style={{ backgroundColor: subject.color }}
+                      />
+                      {subject.name}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Instructions Panel */}
+        {showInstructions && (
+          <TimetableInstructions 
+            onDismiss={() => setShowInstructions(false)}
+            hasSelectedSlots={selectedSlots.length > 0}
+          />
+        )}
+
+        {/* Topic and Subtopic Selection */}
+        {availableTopics.length > 0 && (
+          <Card className="border-gray-200 bg-white shadow-sm">
+            <CardHeader className="pb-4">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Target className="h-5 w-5 text-purple-600" />
+                Learning Content
               </CardTitle>
               <CardDescription>
-                Choose the topics and subtopics you want to include in your teaching schedule
+                Select topics and subtopics to include in your lessons
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Current Subject Display */}
-              {currentSubject && (
-                <div className="flex items-center space-x-2 p-3 bg-emerald-50 rounded-lg">
-                  <BookOpen className="h-4 w-4 text-emerald-600" />
-                  <span className="font-medium text-emerald-900">Subject:</span>
-                  <span className="text-emerald-800">{currentSubject.name}</span>
-                  <Badge variant="outline" className="border-emerald-200 text-emerald-700">
-                    {currentSubject.code}
-                  </Badge>
-                </div>
-              )}
-
-              {/* Available Topics */}
-              {availableTopics.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-2">
+            <CardContent>
+              {/* Topics Section */}
+              <div className="space-y-4">
+                <div>
+                  <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
                     <Target className="h-4 w-4 text-blue-600" />
-                    <span className="font-medium text-gray-900">Available Topics</span>
-                    <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                      {availableTopics.length} topics
-                    </Badge>
-                  </div>
-                  <div className="grid gap-3">
-                    {availableTopics.map((topic) => (
-                      <div
+                    Topics ({availableTopics.length} available)
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {availableTopics.map(topic => (
+                      <Button
                         key={topic.id}
-                        className={`p-4 border rounded-lg cursor-pointer transition-all duration-200 ${
-                          selectedTopicIds.includes(topic.id)
-                            ? 'border-blue-500 bg-blue-50 shadow-md'
-                            : 'border-gray-200 hover:border-blue-300 hover:bg-blue-25'
-                        }`}
+                        variant={selectedTopicIds.includes(topic.id) ? "default" : "outline"}
+                        size="sm"
                         onClick={() => toggleTopicSelection(topic.id)}
+                        className="text-sm"
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="space-y-1">
-                            <div className="flex items-center space-x-2">
-                              <span className="font-medium text-gray-900">
-                                {topic.title || `Topic #${topic.id}`}
-                              </span>
-                              {selectedTopicIds.includes(topic.id) && (
-                                <Badge className="bg-blue-600 text-white">Selected</Badge>
-                              )}
-                            </div>
-                            {topic.description && (
-                              <p className="text-sm text-gray-600">{topic.title}</p>
-                            )}
-                            {topic.learning_objectives && topic.learning_objectives.length > 0 && (
-                              <p className="text-sm text-blue-600">
-                                Objectives: {topic.learning_objectives.slice(0, 2).join(', ')}
-                                {topic.learning_objectives.length > 2 && '...'}
-                              </p>
-                            )}
-                            {topic.duration_weeks && (
-                              <span className="text-xs text-gray-500">
-                                Duration: {topic.duration_weeks} weeks
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                        {topic.title}
+                        {selectedTopicIds.includes(topic.id) && (
+                          <CheckCircle2 className="h-3 w-3 ml-1" />
+                        )}
+                      </Button>
                     ))}
                   </div>
                 </div>
-              )}
 
-              {/* Available Subtopics for Selected Topics */}
-              {availableSubtopics.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-2">
-                    <List className="h-4 w-4 text-purple-600" />
-                    <span className="font-medium text-gray-900">Available Subtopics</span>
-                    <Badge variant="secondary" className="bg-purple-100 text-purple-800">
-                      {availableSubtopics.length} subtopics
-                    </Badge>
+                {/* Subtopics Section */}
+                {availableSubtopics.length > 0 && (
+                  <div>
+                    <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
+                      <List className="h-4 w-4 text-purple-600" />
+                      Subtopics ({availableSubtopics.length} available)
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {availableSubtopics.map(subtopic => (
+                        <Button
+                          key={subtopic.id}
+                          variant={selectedSubtopicIds.includes(subtopic.id) ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => toggleSubtopicSelection(subtopic.id)}
+                          className="text-sm"
+                        >
+                          {subtopic.title}
+                          {selectedSubtopicIds.includes(subtopic.id) && (
+                            <CheckCircle2 className="h-3 w-3 ml-1" />
+                          )}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="grid gap-2">
-                    {availableSubtopics.map((subtopic) => (
-                      <div
-                        key={subtopic.id}
-                        className={`p-3 border rounded-lg cursor-pointer transition-all duration-200 ${
-                          selectedSubtopicIds.includes(subtopic.id)
-                            ? 'border-purple-500 bg-purple-50 shadow-md'
-                            : 'border-gray-200 hover:border-purple-300 hover:bg-purple-25'
-                        }`}
-                        onClick={() => toggleSubtopicSelection(subtopic.id)}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="space-y-1">
-                            <div className="flex items-center space-x-2">
-                              <span className="text-sm font-medium text-gray-900">
-                                {subtopic.title || `Subtopic #${subtopic.id}`}
-                              </span>
-                              {selectedSubtopicIds.includes(subtopic.id) && (
-                                <Badge variant="outline" className="border-purple-500 text-purple-700 text-xs">
-                                  Selected
-                                </Badge>
-                              )}
-                            </div>
-                            {subtopic.content && (
-                              <p className="text-xs text-gray-600 line-clamp-2">{subtopic.title}</p>
-                            )}
-                            {subtopic.activities && subtopic.activities.length > 0 && (
-                              <p className="text-xs text-purple-600">
-                                {subtopic.activities.length} activities planned
-                              </p>
-                            )}
-                            {subtopic.duration_lessons && (
-                              <span className="text-xs text-gray-500">
-                                {subtopic.duration_lessons} lessons
-                              </span>
-                            )}
-                          </div>
+                )}
+
+                {/* Selection Summary */}
+                {(selectedTopicIds.length > 0 || selectedSubtopicIds.length > 0) && (
+                  <div className="p-4 bg-gradient-to-r from-emerald-50 to-blue-50 rounded-lg border border-emerald-200">
+                    <h4 className="font-medium text-emerald-900 mb-2">Selection Summary</h4>
+                    <div className="space-y-2 text-sm">
+                      {selectedTopicIds.length > 0 && (
+                        <div className="flex items-center space-x-2">
+                          <Target className="h-3 w-3 text-blue-600" />
+                          <span className="text-gray-700">
+                            <strong>{selectedTopicIds.length}</strong> topics selected
+                          </span>
                         </div>
-                      </div>
-                    ))}
+                      )}
+                      {selectedSubtopicIds.length > 0 && (
+                        <div className="flex items-center space-x-2">
+                          <List className="h-3 w-3 text-purple-600" />
+                          <span className="text-gray-700">
+                            <strong>{selectedSubtopicIds.length}</strong> subtopics selected
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Selection Summary */}
-              {(selectedTopicIds.length > 0 || selectedSubtopicIds.length > 0) && (
-                <div className="p-4 bg-gradient-to-r from-emerald-50 to-blue-50 rounded-lg border border-emerald-200">
-                  <h4 className="font-medium text-emerald-900 mb-2">Selection Summary</h4>
-                  <div className="space-y-2 text-sm">
-                    {selectedTopicIds.length > 0 && (
-                      <div className="flex items-center space-x-2">
-                        <Target className="h-3 w-3 text-blue-600" />
-                        <span className="text-gray-700">
-                          <strong>{selectedTopicIds.length}</strong> topics selected
-                        </span>
-                      </div>
-                    )}
-                    {selectedSubtopicIds.length > 0 && (
-                      <div className="flex items-center space-x-2">
-                        <List className="h-3 w-3 text-purple-600" />
-                        <span className="text-gray-700">
-                          <strong>{selectedSubtopicIds.length}</strong> subtopics selected
-                        </span>
-                      </div>
-                    )}
+                {/* No Content Available */}
+                {availableTopics.length === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    <BookOpen className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                    <p className="font-medium">No topics available</p>
+                    <p className="text-sm">Topics will appear here based on your scheme of work selection</p>
                   </div>
-                </div>
-              )}
-
-              {/* No Content Available */}
-              {availableTopics.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
-                  <BookOpen className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                  <p className="font-medium">No topics available</p>
-                  <p className="text-sm">Topics will appear here based on your scheme of work selection</p>
-                </div>
-              )}
+                )}
+              </div>
             </CardContent>
           </Card>
         )}
@@ -605,24 +361,38 @@ export default function TimetablePage() {
         {/* Conflict Warnings */}
         {conflictWarnings.length > 0 && (
           <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
               ⚠️ Scheduling conflicts detected: {conflictWarnings.join(', ')}
             </AlertDescription>
           </Alert>
         )}
 
-
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+        {/* Main Content Grid - Give more space to timetable */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           
-          {/* Timetable Grid - Takes most space */}
+          {/* Timetable Grid - Takes most space (2/3 of the width) */}
           <div className="xl:col-span-2">
-            <Card className="shadow-2xl border-0">
+            <Card className="shadow-lg border-0 bg-white">
               <CardHeader className="pb-4">
                 <CardTitle className="flex items-center gap-2">
                   <Clock className="h-5 w-5 text-blue-600" />
                   Weekly Schedule Grid
                 </CardTitle>
+                {!showInstructions && selectedSlots.length === 0 && (
+                  <CardDescription className="flex items-center gap-2">
+                    <Info className="h-4 w-4 text-blue-500" />
+                    Click any time slot to start building your timetable
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => setShowInstructions(true)}
+                      className="text-blue-600 hover:text-blue-700"
+                    >
+                      Show Help
+                    </Button>
+                  </CardDescription>
+                )}
               </CardHeader>
               <CardContent>
                 <TimetableGrid
@@ -635,8 +405,8 @@ export default function TimetablePage() {
             </Card>
           </div>
 
-          {/* Analysis Panel */}
-          <div className="space-y-6">
+          {/* Analysis Panel - Takes remaining space (1/3 of the width) */}
+          <div className="xl:col-span-1 space-y-6">
             <AnalysisPanel analytics={analytics} />
             <AITipsPanel tips={aiTips} workloadLevel={workloadLevel} />
           </div>
@@ -644,115 +414,90 @@ export default function TimetablePage() {
 
         {/* Progress Summary Footer */}
         {selectedSlots.length > 0 && (
-          <Card className="bg-gradient-to-r from-blue-600 to-purple-600 text-white">
+          <Card className="bg-gradient-to-r from-emerald-500 to-blue-600 text-white shadow-lg">
             <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
-                  <h3 className="text-xl font-semibold">
+                  <h3 className="text-2xl font-bold mb-1">
                     {analytics.totalSessions} Teaching Sessions Planned
                   </h3>
-                  <p className="text-blue-100">
+                  <p className="text-emerald-100">
                     {analytics.totalHours} hours per week • {analytics.patternType} pattern
                   </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <Sparkles className="h-4 w-4 text-emerald-200" />
+                    <span className="text-sm text-emerald-100">
+                      {selectedSlots.length < 3 ? 'Getting Started' : 
+                       selectedSlots.length < 6 ? 'Good Progress' : 'Well Planned'}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex gap-3">
-                  <Button variant="secondary">
-                    <Download className="h-4 w-4 mr-2" />
+                <div className="flex flex-wrap gap-3">
+                  <Button variant="secondary" className="flex items-center gap-2">
+                    <Download className="h-4 w-4" />
                     Export Schedule
                   </Button>
-                  <Button variant="secondary">
-                    <Share2 className="h-4 w-4 mr-2" />
-                    Share with Team
+                  <Button variant="secondary" className="flex items-center gap-2">
+                    <Share2 className="h-4 w-4" />
+                    Share
                   </Button>
                 </div>
               </div>
             </CardContent>
           </Card>
         )}
-      </div>
 
-      {/* Subject Selection Modal */}
-      <Dialog open={showContextModal} onOpenChange={setShowContextModal}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Academic Context</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {schemeData && (
-              <div className="space-y-3">
-                <div className="p-4 bg-gray-50 rounded-lg space-y-2">
-                  <div className="flex items-center space-x-2">
-                    <Building2 className="h-4 w-4 text-gray-600" />
-                    <span className="font-medium">School:</span>
-                    <span>{schemeData.schoolName}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <School className="h-4 w-4 text-gray-600" />
-                    <span className="font-medium">Level:</span>
-                    <span>{getSchoolLevelName(schemeData.schoolLevel)}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <GraduationCap className="h-4 w-4 text-gray-600" />
-                    <span className="font-medium">Form:</span>
-                    <span>{getFormName(schemeData.form)}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Calendar className="h-4 w-4 text-gray-600" />
-                    <span className="font-medium">Term:</span>
-                    <span>{getTermName(schemeData.term)}</span>
-                  </div>
+        {/* Context Modal for additional settings */}
+        <Dialog open={showContextModal} onOpenChange={setShowContextModal}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Timetable Settings</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">School Level</label>
+                  <input 
+                    type="text" 
+                    value={schoolLevelName}
+                    onChange={(e) => setSchoolLevelName(e.target.value)}
+                    className="w-full p-2 border rounded"
+                    placeholder="e.g., Primary"
+                  />
                 </div>
-                
-                {currentSubject && (
-                  <div className="p-4 bg-emerald-50 rounded-lg">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <BookOpen className="h-4 w-4 text-emerald-600" />
-                      <span className="font-medium">Selected Subject:</span>
-                      <span>{currentSubject.name}</span>
-                    </div>
-                    
-                    {selectedTopicIds.length > 0 && (
-                      <div className="space-y-1">
-                        <span className="text-sm font-medium text-gray-700">Selected Topics:</span>
-                        <div className="flex flex-wrap gap-1">
-                          {availableTopics
-                            .filter(topic => selectedTopicIds.includes(topic.id))
-                            .map((topic, index) => (
-                            <Badge key={index} variant="secondary" className="text-xs">
-                              {topic.title || `Topic #${topic.id}`}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    
-                    {selectedSubtopicIds.length > 0 && (
-                      <div className="space-y-1 mt-2">
-                        <span className="text-sm font-medium text-gray-700">Selected Subtopics:</span>
-                        <div className="flex flex-wrap gap-1">
-                          {availableSubtopics
-                            .filter(subtopic => selectedSubtopicIds.includes(subtopic.id))
-                            .map((subtopic, index) => (
-                            <Badge key={index} variant="outline" className="text-xs">
-                              {subtopic.title || `Subtopic #${subtopic.id}`}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Form/Grade</label>
+                  <input 
+                    type="text" 
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    className="w-full p-2 border rounded"
+                    placeholder="e.g., Form 1"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Term</label>
+                  <input 
+                    type="text" 
+                    value={termName}
+                    onChange={(e) => setTermName(e.target.value)}
+                    className="w-full p-2 border rounded"
+                    placeholder="e.g., Term 1"
+                  />
+                </div>
               </div>
-            )}
-            
-            <div className="flex justify-end">
-              <Button onClick={() => setShowContextModal(false)}>
-                Close
-              </Button>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowContextModal(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={() => setShowContextModal(false)}>
+                  Save Settings
+                </Button>
+              </div>
             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
   )
 }

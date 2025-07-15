@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from 'react'
-import { Card } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -65,77 +65,46 @@ export default function TimetableGrid({
 
   // Check for potential double lesson creation
   const checkForPotentialDouble = (day: string, timeSlot: string) => {
-    const currentPeriod = TIME_SLOTS.find(t => t.time === timeSlot)?.period
-    if (!currentPeriod) return false
-
-    // Check previous slot
-    const prevTimeSlot = TIME_SLOTS.find(t => t.period === currentPeriod - 1)
-    if (prevTimeSlot && isSlotSelected(day, prevTimeSlot.time)) {
-      return 'can-create-with-previous'
+    if (isSlotSelected(day, timeSlot)) return false
+    
+    const timeIndex = TIME_SLOTS.findIndex(slot => slot.time === timeSlot)
+    
+    // Check if next slot is available for double lesson (top position)
+    if (timeIndex < TIME_SLOTS.length - 1) {
+      const nextTimeSlot = TIME_SLOTS[timeIndex + 1]
+      const nextSlotSelected = isSlotSelected(day, nextTimeSlot.time)
+      if (!nextSlotSelected) return 'can-create-bottom'
     }
-
-    // Check next slot
-    const nextTimeSlot = TIME_SLOTS.find(t => t.period === currentPeriod + 1)
-    if (nextTimeSlot && isSlotSelected(day, nextTimeSlot.time)) {
-      return 'can-create-with-next'
+    
+    // Check if previous slot is available for double lesson (bottom position)
+    if (timeIndex > 0) {
+      const prevTimeSlot = TIME_SLOTS[timeIndex - 1]
+      const prevSlotSelected = isSlotSelected(day, prevTimeSlot.time)
+      if (!prevSlotSelected) return 'can-create-top'
     }
-
+    
     return false
   }
 
-  // Handle keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!hoveredSlot) return
-
-      const [day, time] = hoveredSlot.split('-')
-      const dayIndex = DAYS.indexOf(day)
-      const timeIndex = TIME_SLOTS.findIndex(t => t.time === time)
-
-      let newDay = day
-      let newTime = time
-
-      switch (e.key) {
-        case 'ArrowRight':
-          if (dayIndex < DAYS.length - 1) newDay = DAYS[dayIndex + 1]
-          break
-        case 'ArrowLeft':
-          if (dayIndex > 0) newDay = DAYS[dayIndex - 1]
-          break
-        case 'ArrowDown':
-          if (timeIndex < TIME_SLOTS.length - 1) newTime = TIME_SLOTS[timeIndex + 1].time
-          break
-        case 'ArrowUp':
-          if (timeIndex > 0) newTime = TIME_SLOTS[timeIndex - 1].time
-          break
-        case ' ':
-        case 'Enter':
-          e.preventDefault()
-          handleSlotClick(day, time)
-          return
-      }
-
-      setHoveredSlot(`${newDay}-${newTime}`)
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [hoveredSlot])
-
+  // Handle slot click with proper lesson slot creation
   const handleSlotClick = (day: string, timeSlot: string) => {
-    const timeSlotData = TIME_SLOTS.find(t => t.time === timeSlot)
-    if (!timeSlotData) return
+    const timeSlotObj = TIME_SLOTS.find(slot => slot.time === timeSlot)
+    if (!timeSlotObj) return
 
-    const slot: LessonSlotType = {
+    const lessonSlot: LessonSlotType = {
       day,
       timeSlot,
-      period: timeSlotData.period,
-      isEvening: timeSlotData.isEvening || false,
+      period: timeSlotObj.period,
       subject: currentSubject,
-      isDoubleLesson: false
+      topic: null,
+      subtopic: null,
+      isDoubleLesson: false,
+      doublePosition: undefined,
+      isEvening: timeSlotObj.isEvening,
+      notes: ''
     }
 
-    onSlotClick(slot)
+    onSlotClick(lessonSlot)
   }
 
   const handleMouseEnter = (day: string, timeSlot: string) => {
@@ -143,125 +112,145 @@ export default function TimetableGrid({
   }
 
   const handleMouseLeave = () => {
-    if (!isDragging) {
-      setHoveredSlot(null)
-    }
+    setHoveredSlot(null)
   }
 
+  // Ensure all functions are closed before return
   return (
-    <div className="w-full overflow-hidden">
-      {/* Mobile View - Stack days vertically */}
-      <div className="block md:hidden space-y-4">
+    <div className="w-full space-y-6">
+      {/* Mobile View - Improved Stack by Day */}
+      <div className="block lg:hidden space-y-4">
         {DAYS.map(day => (
-          <Card key={day} className="p-4">
-            <h3 className="font-bold text-lg mb-3 text-center bg-blue-50 py-2 rounded">
-              {day}
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              {TIME_SLOTS.map(timeSlot => (
-                <LessonSlot
-                  key={`${day}-${timeSlot.time}`}
-                  day={day}
-                  timeSlot={timeSlot}
-                  slotType={getSlotType(day, timeSlot.time)}
-                  isSelected={isSlotSelected(day, timeSlot.time)}
-                  isHovered={hoveredSlot === `${day}-${timeSlot.time}`}
-                  canCreateDouble={checkForPotentialDouble(day, timeSlot.time)}
-                  hasConflict={conflictSlots.includes(`${day}-${timeSlot.time}`)}
-                  onClick={() => handleSlotClick(day, timeSlot.time)}
-                  onMouseEnter={() => handleMouseEnter(day, timeSlot.time)}
-                  onMouseLeave={handleMouseLeave}
-                  subject={currentSubject}
-                  className="min-h-[60px] text-sm"
-                />
-              ))}
-            </div>
+          <Card key={day} className="border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-center">
+                <Badge 
+                  variant="outline" 
+                  className="w-full py-3 text-lg font-bold text-gray-700 hover:bg-gray-50 border-2"
+                >
+                  {day}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-3">
+                {TIME_SLOTS.slice(0, 12).map(timeSlot => (
+                  <LessonSlot
+                    key={`${day}-${timeSlot.time}`}
+                    day={day}
+                    timeSlot={timeSlot}
+                    slotType={getSlotType(day, timeSlot.time)}
+                    isSelected={isSlotSelected(day, timeSlot.time)}
+                    isHovered={hoveredSlot === `${day}-${timeSlot.time}`}
+                    canCreateDouble={checkForPotentialDouble(day, timeSlot.time)}
+                    hasConflict={conflictSlots.includes(`${day}-${timeSlot.time}`)}
+                    onClick={() => handleSlotClick(day, timeSlot.time)}
+                    onMouseEnter={() => handleMouseEnter(day, timeSlot.time)}
+                    onMouseLeave={handleMouseLeave}
+                    subject={currentSubject}
+                    className="min-h-[60px] text-sm"
+                  />
+                ))}
+              </div>
+            </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* Desktop View - Traditional Grid */}
-      <div className="hidden md:block" ref={gridRef}>
-        <div className="overflow-x-auto">
-          <div className="min-w-[800px]">
-            {/* Header Row */}
-            <div className="grid grid-cols-6 gap-2 mb-2">
-              <div className="text-center font-semibold text-gray-500 py-3">
-                TIME
-              </div>
-              {DAYS.map(day => (
-                <div key={day} className="text-center">
-                  <Badge variant="outline" className="w-full py-2 text-sm font-bold">
-                    {day}
-                  </Badge>
+      {/* Desktop View - Wider Grid with Better Proportions */}
+      <div className="hidden lg:block" ref={gridRef}>
+        <Card className="border-gray-200 shadow-lg">
+          <CardContent className="p-6">
+            {/* Make grid wider and squares more proportional */}
+            <div className="w-full max-w-none">
+              {/* Header Row */}
+              <div className="grid grid-cols-6 gap-4 mb-6">
+                <div className="text-center font-bold text-gray-600 py-4 text-lg flex items-center justify-center bg-gray-50 rounded-xl border-2 border-gray-200">
+                  TIME
                 </div>
-              ))}
-            </div>
-
-            {/* Time Slots Grid */}
-            <div className="space-y-1">
-              {TIME_SLOTS.map(timeSlot => (
-                <div key={timeSlot.time} className="grid grid-cols-6 gap-2">
-                  {/* Time Label */}
-                  <div className={cn(
-                    "flex items-center justify-center py-3 px-2 rounded text-sm font-medium",
-                    timeSlot.isEvening 
-                      ? "bg-purple-100 text-purple-700" 
-                      : "bg-gray-50 text-gray-600"
-                  )}>
-                    <div className="text-center">
-                      <div className="font-bold">{timeSlot.time}</div>
-                      <div className="text-xs opacity-75">P{timeSlot.period}</div>
-                    </div>
+                {DAYS.map(day => (
+                  <div key={day} className="text-center">
+                    <Badge 
+                      variant="outline" 
+                      className="w-full py-4 text-lg font-bold border-2 hover:bg-gray-50 transition-colors rounded-xl"
+                    >
+                      {day}
+                    </Badge>
                   </div>
+                ))}
+              </div>
 
-                  {/* Day Slots */}
-                  {DAYS.map(day => (
-                    <LessonSlot
-                      key={`${day}-${timeSlot.time}`}
-                      day={day}
-                      timeSlot={timeSlot}
-                      slotType={getSlotType(day, timeSlot.time)}
-                      isSelected={isSlotSelected(day, timeSlot.time)}
-                      isHovered={hoveredSlot === `${day}-${timeSlot.time}`}
-                      canCreateDouble={checkForPotentialDouble(day, timeSlot.time)}
-                      hasConflict={conflictSlots.includes(`${day}-${timeSlot.time}`)}
-                      onClick={() => handleSlotClick(day, timeSlot.time)}
-                      onMouseEnter={() => handleMouseEnter(day, timeSlot.time)}
-                      onMouseLeave={handleMouseLeave}
-                      subject={currentSubject}
-                    />
-                  ))}
-                </div>
-              ))}
+              {/* Time Slots Grid with improved proportions */}
+              <div className="space-y-3">
+                {TIME_SLOTS.map(timeSlot => (
+                  <div key={timeSlot.time} className="grid grid-cols-6 gap-4">
+                    {/* Time Label - Made wider and better proportioned */}
+                    <div className={cn(
+                      "flex items-center justify-center py-3 px-4 rounded-xl text-center font-semibold transition-all duration-200 min-h-[60px]",
+                      timeSlot.isEvening 
+                        ? "bg-purple-100 text-purple-700 border-2 border-purple-200 shadow-sm" 
+                        : "bg-gray-50 text-gray-700 border-2 border-gray-200 hover:bg-gray-100"
+                    )}>
+                      <div>
+                        <div className="font-bold text-base">{timeSlot.time}</div>
+                        <div className="text-xs opacity-75">Period {timeSlot.period}</div>
+                      </div>
+                    </div>
+
+                    {/* Day Slots - Better proportioned squares */}
+                    {DAYS.map(day => (
+                      <div key={`${day}-${timeSlot.time}`} className="min-h-[60px]">
+                        <LessonSlot
+                          day={day}
+                          timeSlot={timeSlot}
+                          slotType={getSlotType(day, timeSlot.time)}
+                          isSelected={isSlotSelected(day, timeSlot.time)}
+                          isHovered={hoveredSlot === `${day}-${timeSlot.time}`}
+                          canCreateDouble={checkForPotentialDouble(day, timeSlot.time)}
+                          hasConflict={conflictSlots.includes(`${day}-${timeSlot.time}`)}
+                          onClick={() => handleSlotClick(day, timeSlot.time)}
+                          onMouseEnter={() => handleMouseEnter(day, timeSlot.time)}
+                          onMouseLeave={handleMouseLeave}
+                          subject={currentSubject}
+                          className="h-full"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Enhanced Legend */}
+      <Card className="border-gray-200">
+        <CardContent className="pt-6">
+          <div className="flex flex-wrap gap-6 justify-center text-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 bg-gray-100 border-2 border-gray-200 rounded-lg"></div>
+              <span className="font-medium text-gray-700">Available</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 bg-emerald-500 rounded-lg shadow-sm"></div>
+              <span className="font-medium text-gray-700">Single Lesson</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 bg-orange-500 rounded-lg shadow-sm"></div>
+              <span className="font-medium text-gray-700">Double Lesson</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 bg-purple-500 rounded-lg shadow-sm"></div>
+              <span className="font-medium text-gray-700">Evening Lesson</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 bg-red-100 border-2 border-red-500 rounded-lg"></div>
+              <span className="font-medium text-gray-700">Conflict</span>
             </div>
           </div>
-        </div>
-
-        {/* Legend */}
-        <div className="mt-6 flex flex-wrap gap-4 justify-center text-sm">
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-gray-100 border rounded"></div>
-            <span>Available</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-green-500 rounded"></div>
-            <span>Single Lesson</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-orange-500 rounded"></div>
-            <span>Double Lesson</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-purple-500 rounded"></div>
-            <span>Evening Lesson</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-red-200 border-2 border-red-500 rounded"></div>
-            <span>Conflict</span>
-          </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   )
-} 
+}
