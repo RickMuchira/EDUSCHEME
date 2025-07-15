@@ -31,7 +31,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import TimetableGrid from './components/TimetableGrid'
 import AnalysisPanel from './components/AnalysisPanel'
 import AITipsPanel from './components/AITipsPanel'
-import QuickTemplates from './components/QuickTemplates'
 import { useTimetableState } from './hooks/useTimetableState'
 import { useTimetableAnalytics } from './hooks/useTimetableAnalytics'
 import { TimetableData, LessonSlot } from './types/timetable'
@@ -612,10 +611,6 @@ export default function TimetablePage() {
           </Alert>
         )}
 
-        {/* Quick Templates */}
-        <QuickTemplates onTemplateSelect={(template) => {
-          console.log('Template selected:', template)
-        }} />
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
