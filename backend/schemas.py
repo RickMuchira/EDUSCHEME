@@ -292,7 +292,7 @@ class Subject(SubjectBase):
 # ============= TOPIC SCHEMAS =============
 
 class TopicBase(BaseSchema):
-    title: str = Field(..., min_length=1, max_length=255, description="Topic title")
+    title: str = Field(..., min_length=1, max_length=255, description="Topic title")  # Restored as required
     description: Optional[str] = Field(None, description="Topic description")
     learning_objectives: Optional[List[str]] = Field(None, description="Learning objectives")
     duration_weeks: int = Field(default=1, ge=1, le=52, description="Duration in weeks")
@@ -303,7 +303,7 @@ class TopicCreate(TopicBase):
     subject_id: int = Field(..., gt=0, description="Subject ID")
 
 class TopicUpdate(BaseSchema):
-    title: Optional[str] = Field(None, min_length=1, max_length=255)
+    title: Optional[str] = Field(None, min_length=1, max_length=255)  # Restored as optional
     description: Optional[str] = None
     learning_objectives: Optional[List[str]] = None
     duration_weeks: Optional[int] = Field(None, ge=1, le=52)
@@ -320,7 +320,7 @@ class Topic(TopicBase):
 # ============= SUBTOPIC SCHEMAS =============
 
 class SubtopicBase(BaseSchema):
-    title: str = Field(..., min_length=1, max_length=255, description="Subtopic title")
+    title: str = Field(..., min_length=1, max_length=255, description="Subtopic title")  # Restored as required
     content: Optional[str] = Field(None, description="Subtopic content")
     activities: Optional[List[Dict[str, Any]]] = Field(None, description="Learning activities")
     assessment_criteria: Optional[List[Dict[str, Any]]] = Field(None, description="Assessment criteria")
@@ -333,7 +333,7 @@ class SubtopicCreate(SubtopicBase):
     topic_id: int = Field(..., gt=0, description="Topic ID")
 
 class SubtopicUpdate(BaseSchema):
-    title: Optional[str] = Field(None, min_length=1, max_length=255)
+    title: Optional[str] = Field(None, min_length=1, max_length=255)  # Restored as optional
     content: Optional[str] = None
     activities: Optional[List[Dict[str, Any]]] = None
     assessment_criteria: Optional[List[Dict[str, Any]]] = None
