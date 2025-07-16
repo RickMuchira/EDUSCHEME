@@ -4,12 +4,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
 from typing import List, Optional
 import time
 import logging
 import os
 from database import create_tables, get_db
 import crud, models, schemas
+from fastapi.exception_handlers import RequestValidationError
+from fastapi.exceptions import RequestValidationError
+from fastapi import Request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +23,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="EDUScheme Pro API",
     description="AI-powered curriculum planning and content management system",
-    version="1.0.0",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -60,6 +64,19 @@ async def global_exception_handler(request, exc):
         }
     )
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error(f"Validation error: {exc.errors()}")
+    try:
+        body = await request.body()
+        logger.error(f"Request body: {body}")
+    except Exception as e:
+        logger.error(f"Could not read request body: {e}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+    )
+
 # Startup event
 @app.on_event("startup")
 async def startup_event():
@@ -69,18 +86,259 @@ async def startup_event():
         create_tables()
         logger.info("Database tables created/verified successfully")
     except Exception as e:
-        logger.error(f"Failed to initialize database: {e}")
+        logger.error(f"Database initialization failed: {str(e)}")
         raise
 
 # Health check endpoint
 @app.get("/health")
 async def health_check():
-    """Simple health check endpoint"""
+    """Health check endpoint"""
     return {
         "status": "healthy",
-        "message": "EDUScheme Pro API is running",
+        "service": "eduscheme-pro-api",
+        "version": "2.0.0",
         "timestamp": time.time()
     }
+
+# ============= USER ENDPOINTS =============
+
+@app.post("/api/users", response_model=schemas.User, tags=["Users"])
+async def create_user(
+   user: schemas.UserCreate,
+   db: Session = Depends(get_db)
+):
+   """Create a new user from Google authentication"""
+   try:
+       # Check if user already exists
+       existing_user = crud.user.get_by_google_id(db, google_id=user.google_id)
+       if existing_user:
+           # Update last login
+           existing_user.last_login = func.now()
+           db.commit()
+           db.refresh(existing_user)
+           return existing_user
+       
+       # Create new user
+       db_user = crud.user.create(db=db, obj_in=user)
+       return db_user
+   except Exception as e:
+       logger.error(f"Error creating user: {str(e)}")
+       raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/users/me", response_model=schemas.User, tags=["Users"])
+async def get_current_user(
+   google_id: str = Query(..., description="Google ID of the user"),
+   db: Session = Depends(get_db)
+):
+   """Get current user information"""
+   user = crud.user.get_by_google_id(db, google_id=google_id)
+   if not user:
+       raise HTTPException(status_code=404, detail="User not found")
+   return user
+
+@app.put("/api/users/me", response_model=schemas.User, tags=["Users"])
+async def update_current_user(
+   user_update: schemas.UserUpdate,
+   google_id: str = Query(..., description="Google ID of the user"),
+   db: Session = Depends(get_db)
+):
+   """Update current user information"""
+   user = crud.user.get_by_google_id(db, google_id=google_id)
+   if not user:
+       raise HTTPException(status_code=404, detail="User not found")
+   
+   updated_user = crud.user.update(db=db, db_obj=user, obj_in=user_update)
+   return updated_user
+
+# ============= SCHEME OF WORK ENDPOINTS =============
+
+@app.post("/api/schemes", response_model=schemas.ResponseWrapper, tags=["Schemes"])
+async def create_scheme(
+   scheme: schemas.SchemeOfWorkCreate,
+   user_google_id: str = Query(..., description="User's Google ID"),
+   db: Session = Depends(get_db)
+):
+   """Create a new scheme of work"""
+   try:
+       logger.info(f"Creating scheme for user: {user_google_id}")
+       logger.info(f"Scheme data: {scheme.dict()}")
+       user = crud.user.get_by_google_id(db, google_id=user_google_id)
+       if not user:
+           logger.error(f"User not found: {user_google_id}")
+           raise HTTPException(status_code=404, detail="User not found")
+       logger.info(f"Found user: {user.id} - {user.email}")
+       scheme_data = scheme.dict()
+       scheme_data["user_id"] = user.id
+       logger.info(f"Creating scheme with data: {scheme_data}")
+       db_scheme = crud.scheme.create(db=db, obj_in=scheme_data)
+       logger.info(f"Scheme created successfully: {db_scheme.id}")
+       return schemas.ResponseWrapper(
+           success=True,
+           message="Scheme created successfully",
+           data=schemas.SchemeOfWork.model_validate(db_scheme)
+       )
+   except HTTPException as he:
+       logger.error(f"HTTP Exception: {he.detail}")
+       return schemas.ResponseWrapper(
+           success=False,
+           message=he.detail,
+           data=None
+       )
+   except Exception as e:
+       logger.error(f"Error creating scheme: {type(e).__name__}: {str(e)}")
+       logger.exception("Full exception details:")
+       return schemas.ResponseWrapper(
+           success=False,
+           message=f"Failed to create scheme: {type(e).__name__}: {str(e)}",
+           data=None
+       )
+
+@app.get("/api/schemes", response_model=schemas.ResponseWrapper, tags=["Schemes"])
+async def get_user_schemes(
+   user_google_id: str = Query(..., description="User's Google ID"),
+   status: Optional[str] = Query(None, description="Filter by status"),
+   skip: int = Query(0, ge=0, description="Number of schemes to skip"),
+   limit: int = Query(100, ge=1, le=100, description="Number of schemes to return"),
+   db: Session = Depends(get_db)
+):
+   try:
+       user = crud.user.get_by_google_id(db, google_id=user_google_id)
+       if not user:
+           raise HTTPException(status_code=404, detail="User not found")
+       schemes = crud.scheme.get_by_user(
+           db=db, 
+           user_id=user.id, 
+           status=status, 
+           skip=skip, 
+           limit=limit
+       )
+       return schemas.ResponseWrapper(
+           success=True,
+           message="Schemes retrieved successfully",
+           data=[schemas.SchemeOfWork.model_validate(s) for s in schemes],
+           total=len(schemes)
+       )
+   except Exception as e:
+       return schemas.ResponseWrapper(
+           success=False,
+           message=str(e),
+           data=None
+       )
+
+@app.get("/api/schemes/{scheme_id}", response_model=schemas.ResponseWrapper, tags=["Schemes"])
+async def get_scheme(
+   scheme_id: int = Path(..., description="Scheme ID"),
+   user_google_id: str = Query(..., description="User's Google ID"),
+   db: Session = Depends(get_db)
+):
+   try:
+       user = crud.user.get_by_google_id(db, google_id=user_google_id)
+       if not user:
+           raise HTTPException(status_code=404, detail="User not found")
+       scheme = crud.scheme.get(db=db, id=scheme_id)
+       if not scheme:
+           raise HTTPException(status_code=404, detail="Scheme not found")
+       if scheme.user_id != user.id:
+           raise HTTPException(status_code=403, detail="Not authorized to access this scheme")
+       return schemas.ResponseWrapper(
+           success=True,
+           message="Scheme retrieved successfully",
+           data=schemas.SchemeOfWork.model_validate(scheme)
+       )
+   except Exception as e:
+       return schemas.ResponseWrapper(
+           success=False,
+           message=str(e),
+           data=None
+       )
+
+@app.put("/api/schemes/{scheme_id}", response_model=schemas.ResponseWrapper, tags=["Schemes"])
+async def update_scheme(
+   scheme_update: schemas.SchemeOfWorkUpdate,
+   scheme_id: int = Path(..., description="Scheme ID"),
+   user_google_id: str = Query(..., description="User's Google ID"),
+   db: Session = Depends(get_db)
+):
+   try:
+       user = crud.user.get_by_google_id(db, google_id=user_google_id)
+       if not user:
+           raise HTTPException(status_code=404, detail="User not found")
+       scheme = crud.scheme.get(db=db, id=scheme_id)
+       if not scheme:
+           raise HTTPException(status_code=404, detail="Scheme not found")
+       if scheme.user_id != user.id:
+           raise HTTPException(status_code=403, detail="Not authorized to update this scheme")
+       updated_scheme = crud.scheme.update(db=db, db_obj=scheme, obj_in=scheme_update)
+       return schemas.ResponseWrapper(
+           success=True,
+           message="Scheme updated successfully",
+           data=schemas.SchemeOfWork.model_validate(updated_scheme)
+       )
+   except Exception as e:
+       return schemas.ResponseWrapper(
+           success=False,
+           message=str(e),
+           data=None
+       )
+
+@app.delete("/api/schemes/{scheme_id}", response_model=schemas.ResponseWrapper, tags=["Schemes"])
+async def delete_scheme(
+   scheme_id: int = Path(..., description="Scheme ID"),
+   user_google_id: str = Query(..., description="User's Google ID"),
+   db: Session = Depends(get_db)
+):
+   try:
+       user = crud.user.get_by_google_id(db, google_id=user_google_id)
+       if not user:
+           raise HTTPException(status_code=404, detail="User not found")
+       scheme = crud.scheme.get(db=db, id=scheme_id)
+       if not scheme:
+           raise HTTPException(status_code=404, detail="Scheme not found")
+       if scheme.user_id != user.id:
+           raise HTTPException(status_code=403, detail="Not authorized to delete this scheme")
+       crud.scheme.remove(db=db, id=scheme_id)
+       return schemas.ResponseWrapper(
+           success=True,
+           message="Scheme deleted successfully",
+           data=None
+       )
+   except Exception as e:
+       return schemas.ResponseWrapper(
+           success=False,
+           message=str(e),
+           data=None
+       )
+
+# ============= DASHBOARD STATS ENDPOINT =============
+
+@app.get("/api/dashboard/stats", tags=["Dashboard"])
+async def get_dashboard_stats(
+   user_google_id: str = Query(..., description="User's Google ID"),
+   db: Session = Depends(get_db)
+):
+   """Get user dashboard statistics"""
+   user = crud.user.get_by_google_id(db, google_id=user_google_id)
+   if not user:
+       raise HTTPException(status_code=404, detail="User not found")
+   
+   # Get scheme statistics
+   total_schemes = crud.scheme.count_by_user(db=db, user_id=user.id)
+   completed_schemes = crud.scheme.count_by_user_and_status(db=db, user_id=user.id, status="completed")
+   active_schemes = crud.scheme.count_by_user_and_status(db=db, user_id=user.id, status="in-progress")
+   
+   # Get lesson plan count
+   total_lessons = crud.lesson_plan.count_by_user(db=db, user_id=user.id)
+   
+   return {
+       "success": True,
+       "data": {
+           "total_schemes": total_schemes,
+           "completed_schemes": completed_schemes,
+           "active_schemes": active_schemes,
+           "total_lessons": total_lessons,
+           "completion_rate": round((completed_schemes / total_schemes * 100) if total_schemes > 0 else 0, 1)
+       }
+   }
 
 # Root endpoint
 @app.get("/")
@@ -93,6 +351,51 @@ async def root():
         "docs": "/docs",
         "health": "/health"
     }
+
+# ============= SCHOOL SYSTEM ENDPOINTS FOR FRONTEND =============
+
+@app.get("/api/school-levels", tags=["School System"])
+async def get_school_levels(
+    include_relations: bool = Query(True, description="Include forms and terms"),
+    db: Session = Depends(get_db)
+):
+    """Get all school levels with their forms, grades, and terms"""
+    try:
+        if include_relations:
+            # Use the enhanced CRUD method to get relations
+            school_levels_data = crud.school_level.get_all_with_relations(db)
+            return {
+                "success": True,
+                "data": school_levels_data,
+                "count": len(school_levels_data)
+            }
+        else:
+            school_levels = crud.school_level.get_multi(db)
+            return {
+                "success": True,
+                "data": [schemas.SchoolLevel.model_validate(sl) for sl in school_levels],
+                "count": len(school_levels)
+            }
+    except Exception as e:
+        logger.error(f"Error fetching school levels: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch school levels")
+
+@app.get("/api/subjects/by-term/{term_id}", tags=["Subjects"])
+async def get_subjects_by_term(
+    term_id: int = Path(..., description="Term ID"),
+    db: Session = Depends(get_db)
+):
+    """Get all subjects for a specific term"""
+    try:
+        subjects = crud.subject.get_by_term(db=db, term_id=term_id)
+        return {
+            "success": True,
+            "data": [schemas.Subject.model_validate(s) for s in subjects],
+            "count": len(subjects)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching subjects for term {term_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch subjects")
 
 # ================== ADMIN API ROUTES ==================
 

@@ -1,187 +1,311 @@
-"use client"
+'use client'
 
-import { useSession } from "next-auth/react"
-import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
-import SignOutButton from "@/components/auth/SignOutButton"
+import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { 
+  FileText,
+  Plus,
+  BookOpen,
+  Calendar,
+  BarChart3,
+  ArrowRight,
+  Clock,
+  CheckCircle2,
+  Star,
+  TrendingUp,
+  Users,
+  Target
+} from 'lucide-react'
+import Link from 'next/link'
+import { cn } from '@/lib/utils'
+
+interface DashboardStats {
+  totalSchemes: number
+  completedSchemes: number
+  activeSchemes: number
+  totalLessons: number
+}
 
 export default function DashboardPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
-  const [imageError, setImageError] = useState(false)
+  const [stats, setStats] = useState<DashboardStats>({
+    totalSchemes: 0,
+    completedSchemes: 0,
+    activeSchemes: 0,
+    totalLessons: 0
+  })
 
   useEffect(() => {
-    if (status === "unauthenticated") {
-      router.push("/login")
+    if (status === 'unauthenticated') {
+      router.push('/login')
     }
   }, [status, router])
 
-  if (status === "loading") {
+  useEffect(() => {
+    // Simulate fetching user stats
+    setStats({
+      totalSchemes: 12,
+      completedSchemes: 8,
+      activeSchemes: 4,
+      totalLessons: 156
+    })
+  }, [])
+
+  if (status === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading dashboard...</p>
         </div>
       </div>
     )
   }
 
-  if (status === "unauthenticated") {
+  if (status === 'unauthenticated') {
     return null
   }
 
-  // Get user initials for fallback
-  const getUserInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2)
-  }
+  const recentSchemes = [
+    { id: 1, title: 'Mathematics - Form 2 Term 1', status: 'completed', progress: 100, dueDate: '2024-03-15' },
+    { id: 2, title: 'English - Form 1 Term 2', status: 'in-progress', progress: 75, dueDate: '2024-04-20' },
+    { id: 3, title: 'Science - Form 3 Term 1', status: 'draft', progress: 25, dueDate: '2024-05-10' }
+  ]
+
+  const quickActions = [
+    {
+      title: 'Create New Scheme',
+      description: 'Design a curriculum scheme',
+      icon: Plus,
+      color: 'bg-emerald-500',
+      href: '/dashboard/scheme-of-work'
+    },
+    {
+      title: 'Browse Templates',
+      description: 'Pre-built schemes',
+      icon: BookOpen,
+      color: 'bg-blue-500',
+      href: '/dashboard/templates'
+    },
+    {
+      title: 'Plan Lessons',
+      description: 'Create lesson plans',
+      icon: Calendar,
+      color: 'bg-purple-500',
+      href: '/dashboard/lesson-plans'
+    },
+    {
+      title: 'View Analytics',
+      description: 'Track your progress',
+      icon: BarChart3,
+      color: 'bg-orange-500',
+      href: '/dashboard/analytics'
+    }
+  ]
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center">
-              <div className="h-8 w-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
-                <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                </svg>
-              </div>
-              <h1 className="text-xl font-semibold text-gray-900">EDUSCHEME</h1>
-            </div>
-
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-3">
-                <div className="relative">
-                  {session?.user?.image && !imageError ? (
-                    <img
-                      className="h-12 w-12 rounded-full border-2 border-blue-200 object-cover shadow-sm bg-gray-100"
-                      src={session.user.image}
-                      alt={session.user.name || "User profile"}
-                      onError={() => setImageError(true)}
-                      onLoad={() => setImageError(false)}
-                    />
-                  ) : (
-                    <div className="h-12 w-12 rounded-full border-2 border-blue-200 bg-blue-600 flex items-center justify-center shadow-sm">
-                      <span className="text-white font-semibold text-sm">
-                        {session?.user?.name ? getUserInitials(session.user.name) : 'U'}
-                      </span>
-                    </div>
-                  )}
-                  <div className="absolute -bottom-1 -right-1 h-4 w-4 bg-green-500 rounded-full border-2 border-white"></div>
-                </div>
-                <div className="text-sm">
-                  <p className="font-semibold text-gray-900">{session?.user?.name}</p>
-                  <p className="text-gray-500 text-xs">{session?.user?.email}</p>
-                </div>
-              </div>
-              <SignOutButton />
-            </div>
-          </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-emerald-50 p-6">
+      <div className="max-w-7xl mx-auto space-y-8">
+        {/* Welcome Header */}
+        <div className="text-center lg:text-left">
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">
+            Welcome back, {session?.user?.name?.split(' ')[0] || 'Teacher'}! 👋
+          </h1>
+          <p className="text-lg text-gray-600">
+            Ready to create amazing learning experiences? Let's get started with your curriculum planning.
+          </p>
         </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
-                  <svg className="h-4 w-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-emerald-600 text-sm font-medium">Total Schemes</p>
+                  <p className="text-3xl font-bold text-emerald-900">{stats.totalSchemes}</p>
+                </div>
+                <div className="h-12 w-12 bg-emerald-500 rounded-full flex items-center justify-center">
+                  <FileText className="h-6 w-6 text-white" />
                 </div>
               </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Schemes Created</p>
-                <p className="text-2xl font-bold text-gray-900">0</p>
-              </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center">
-                  <svg className="h-4 w-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                  </svg>
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-blue-600 text-sm font-medium">Completed</p>
+                  <p className="text-3xl font-bold text-blue-900">{stats.completedSchemes}</p>
+                </div>
+                <div className="h-12 w-12 bg-blue-500 rounded-full flex items-center justify-center">
+                  <CheckCircle2 className="h-6 w-6 text-white" />
                 </div>
               </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Subjects</p>
-                <p className="text-2xl font-bold text-gray-900">0</p>
-              </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center">
-                  <svg className="h-4 w-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                  </svg>
+          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-purple-600 text-sm font-medium">Active Schemes</p>
+                  <p className="text-3xl font-bold text-purple-900">{stats.activeSchemes}</p>
+                </div>
+                <div className="h-12 w-12 bg-purple-500 rounded-full flex items-center justify-center">
+                  <Target className="h-6 w-6 text-white" />
                 </div>
               </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Time Saved</p>
-                <p className="text-2xl font-bold text-gray-900">0 hrs</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-orange-600 text-sm font-medium">Total Lessons</p>
+                  <p className="text-3xl font-bold text-orange-900">{stats.totalLessons}</p>
+                </div>
+                <div className="h-12 w-12 bg-orange-500 rounded-full flex items-center justify-center">
+                  <TrendingUp className="h-6 w-6 text-white" />
+                </div>
               </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Quick Actions */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <button className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-              <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-                <svg className="h-4 w-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-              </div>
-              <div className="text-left">
-                <p className="font-medium text-gray-900">Create New Scheme</p>
-                <p className="text-sm text-gray-600">Start with AI assistance</p>
-              </div>
-            </button>
+        <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
+          <CardHeader>
+            <CardTitle className="text-2xl text-gray-900">Quick Actions</CardTitle>
+            <CardDescription>Get started with these common tasks</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {quickActions.map((action, index) => (
+                <Link key={index} href={action.href}>
+                  <div className="group p-6 rounded-xl border border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50 transition-all duration-200 cursor-pointer">
+                    <div className="flex items-center space-x-4">
+                      <div className={cn(
+                        "h-12 w-12 rounded-xl flex items-center justify-center",
+                        action.color
+                      )}>
+                        <action.icon className="h-6 w-6 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-900 group-hover:text-gray-700">
+                          {action.title}
+                        </h3>
+                        <p className="text-sm text-gray-500">{action.description}</p>
+                      </div>
+                      <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
 
-            <button className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-              <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center mr-3">
-                <svg className="h-4 w-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <div className="text-left">
-                <p className="font-medium text-gray-900">Browse Templates</p>
-                <p className="text-sm text-gray-600">Pre-built schemes</p>
-              </div>
-            </button>
+        {/* Recent Schemes */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2">
+            <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="text-xl text-gray-900">Recent Schemes</CardTitle>
+                <CardDescription>Your latest curriculum work</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {recentSchemes.map((scheme) => (
+                  <div key={scheme.id} className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-semibold text-gray-900">{scheme.title}</h4>
+                      <Badge variant={
+                        scheme.status === 'completed' ? 'default' :
+                        scheme.status === 'in-progress' ? 'secondary' : 'outline'
+                      }>
+                        {scheme.status === 'completed' ? 'Completed' :
+                         scheme.status === 'in-progress' ? 'In Progress' : 'Draft'}
+                      </Badge>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600">Progress</span>
+                        <span className="font-medium">{scheme.progress}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div 
+                          className="bg-emerald-500 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${scheme.progress}%` }}
+                        />
+                      </div>
+                      <div className="flex items-center text-sm text-gray-500">
+                        <Clock className="h-4 w-4 mr-1" />
+                        Due: {new Date(scheme.dueDate).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <Link href="/dashboard/my-schemes">
+                  <Button variant="outline" className="w-full">
+                    View All Schemes
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          </div>
 
-            <button className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-              <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center mr-3">
-                <svg className="h-4 w-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 00-2-2z" />
-                </svg>
-              </div>
-              <div className="text-left">
-                <p className="font-medium text-gray-900">View Analytics</p>
-                <p className="text-sm text-gray-600">Track your progress</p>
-              </div>
-            </button>
+          {/* Today's Focus */}
+          <div className="space-y-6">
+            <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="text-xl text-gray-900">Today's Focus</CardTitle>
+                <CardDescription>Your priorities for today</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center space-x-3 p-3 bg-emerald-50 rounded-lg">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                  <span className="text-sm text-gray-700">Complete Mathematics Term 2 outline</span>
+                </div>
+                <div className="flex items-center space-x-3 p-3 bg-blue-50 rounded-lg">
+                  <Clock className="h-5 w-5 text-blue-600" />
+                  <span className="text-sm text-gray-700">Review Science curriculum changes</span>
+                </div>
+                <div className="flex items-center space-x-3 p-3 bg-purple-50 rounded-lg">
+                  <Star className="h-5 w-5 text-purple-600" />
+                  <span className="text-sm text-gray-700">Plan next week's lessons</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="text-xl text-gray-900">Achievement</CardTitle>
+                <CardDescription>Your teaching milestone</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center space-y-3">
+                  <div className="h-16 w-16 bg-gradient-to-br from-emerald-500 to-blue-500 rounded-full flex items-center justify-center mx-auto">
+                    <Star className="h-8 w-8 text-white" />
+                  </div>
+                  <h3 className="font-semibold text-gray-900">Curriculum Master</h3>
+                  <p className="text-sm text-gray-600">You've created 10+ schemes of work!</p>
+                  <Badge className="bg-gradient-to-r from-emerald-500 to-blue-500">
+                    Level 3 Educator
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   )
 }
