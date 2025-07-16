@@ -10,6 +10,7 @@ DATABASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE_PATH = os.path.join(DATABASE_DIR, "eduscheme.db")
 DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
 
+
 # SQLite-specific engine configuration
 engine = create_engine(
     DATABASE_URL,
