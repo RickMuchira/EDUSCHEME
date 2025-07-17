@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { 
   Calendar, 
   Clock, 
@@ -20,6 +21,7 @@ import {
   GraduationCap,
   FileText,
   ChevronRight,
+  ChevronDown,
   Target,
   List,
   Users,
@@ -30,7 +32,9 @@ import {
   Info,
   AlertTriangle,
   Database,
-  Trash2
+  Trash2,
+  FolderOpen,
+  Play
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
@@ -41,7 +45,7 @@ import TimetableInstructions from './components/TimetableInstructions'
 import { useTimetableState } from './hooks/useTimetableState'
 import { useTimetableAnalytics } from './hooks/useTimetableAnalytics'
 import { TimetableData, LessonSlot } from './types/timetable'
-import { subjectApi, topicApi, subtopicApi } from '@/lib/api'
+import { schemeApi } from '@/lib/api'
 import { useSession } from 'next-auth/react'
 
 export default function TimetablePage() {
@@ -96,7 +100,7 @@ export default function TimetablePage() {
     try {
       const allSubtopics: any[] = []
       for (const topicId of topicIds) {
-        const subtopics = await subtopicApi.getByTopicId(topicId)
+        const subtopics = await schemeApi.getSubtopicsByTopicId(topicId)
         if (subtopics) {
           allSubtopics.push(...subtopics)
         }
@@ -198,7 +202,7 @@ export default function TimetablePage() {
       setSchemeData(mockSchemeData)
       
       // Load subjects
-      const subjects = await subjectApi.getAll()
+      const subjects = await schemeApi.getAllSubjects()
       if (subjects && subjects.length > 0) {
         setAvailableSubjects(subjects)
         const firstSubject = subjects[0]
@@ -206,7 +210,7 @@ export default function TimetablePage() {
         setCurrentSubjectState(firstSubject)
         
         // Load topics for the first subject
-        const topics = await topicApi.getBySubjectId(firstSubject.id)
+        const topics = await schemeApi.getTopicsBySubjectId(firstSubject.id)
         setAvailableTopics(topics || [])
         
         // Set fallback names
@@ -533,6 +537,23 @@ export default function TimetablePage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Add the Save & Continue button below the topic/subtopic selection UI */}
+        <div className="flex justify-end mt-4">
+          <Button
+            onClick={async () => {
+              const success = await saveToStorage();
+              if (success) {
+                window.location.href = "/scheme";
+              } else {
+                alert("Failed to save. Please try again.");
+              }
+            }}
+            className="w-full sm:w-auto"
+          >
+            Save & Continue
+          </Button>
+        </div>
 
       </div>
 

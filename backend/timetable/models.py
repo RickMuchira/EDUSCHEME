@@ -6,6 +6,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 import uuid
+from backend.models import JSONType  # Import the custom JSONType for JSON storage
 
 # Add these classes to your existing models.py file (after your existing models)
 
@@ -20,6 +21,8 @@ class Timetable(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Add this field to store selected topics/subtopics as JSON
+    selected_content = Column(JSONType)  # Stores selected topics/subtopics
     
     # Relationships
     subject = relationship("Subject", backref="timetables")

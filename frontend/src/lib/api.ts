@@ -1,7 +1,7 @@
 // File: frontend/src/lib/api.ts
 // FULLY UPDATED API client with ALL backend endpoints
 
-import apiClient, { ApiClient as ApiClientClass } from './apiClient';
+import apiClient from './apiClient';
 
 interface ApiResponse<T = any> {
   success: boolean
@@ -171,25 +171,25 @@ export const schemeApi = {
 // Dashboard API
 export const dashboardApi = {
   async getStats(userGoogleId: string): Promise<any> {
-    return apiClient.request<DashboardStats>(`/api/dashboard/stats?user_google_id=${userGoogleId}`)
+    return apiClient.request<any>(`/api/dashboard/stats?user_google_id=${userGoogleId}`)
   }
 }
 
 // User API
 export const userApi = {
-  async create(data: UserCreate): Promise<any> {
-    return apiClient.request<User>('/api/users', {
+  async create(data: any): Promise<any> {
+    return apiClient.request<any>('/api/users', {
       method: 'POST',
       body: JSON.stringify(data),
     })
   },
 
   async getCurrentUser(googleId: string): Promise<any> {
-    return apiClient.request<User>(`/api/users/me?google_id=${googleId}`)
+    return apiClient.request<any>(`/api/users/me?google_id=${googleId}`)
   },
 
-  async updateCurrentUser(googleId: string, data: UserUpdate): Promise<any> {
-    return apiClient.request<User>(`/api/users/me?google_id=${googleId}`, {
+  async updateCurrentUser(googleId: string, data: any): Promise<any> {
+    return apiClient.request<any>(`/api/users/me?google_id=${googleId}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     })
@@ -256,4 +256,229 @@ export default {
   formGradeApi,
   termApi,
   subjectApi
+}
+
+// Helper function to extract topics and subtopics from scheme content
+export const extractSchemeContent = (scheme: any) => {
+  try {
+    const content = scheme.content || {}
+    const topics = content.topics || []
+    const processedTopics = topics.map((topic: any, index: number) => ({
+      id: topic.id || `topic-${index}`,
+      title: topic.title || `Topic ${index + 1}`,
+      description: topic.description || '',
+      subtopics: (topic.subtopics || []).map((subtopic: any, subIndex: number) => ({
+        id: subtopic.id || `subtopic-${index}-${subIndex}`,
+        title: subtopic.title || `Subtopic ${subIndex + 1}`,
+        content: subtopic.content || '',
+        duration: subtopic.duration || 1,
+        parentTopicId: topic.id || `topic-${index}`
+      }))
+    }))
+    return {
+      topics: processedTopics,
+      metadata: content.metadata || {},
+      totalTopics: processedTopics.length,
+      totalSubtopics: processedTopics.reduce((acc: number, topic: any) => acc + (topic.subtopics?.length || 0), 0)
+    }
+  } catch (error) {
+    return {
+      topics: [],
+      metadata: {},
+      totalTopics: 0,
+      totalSubtopics: 0
+    }
+  }
+}
+
+export const enhancedSchemeApi = {
+  async getUserSchemesWithContent(userGoogleId: string): Promise<any[]> {
+    try {
+      const schemes = await schemeApi.getAll(userGoogleId)
+      return schemes.map(scheme => ({
+        ...scheme,
+        extractedContent: extractSchemeContent(scheme)
+      }))
+    } catch (error) {
+      throw error
+    }
+  },
+  async getSchemeWithContent(schemeId: number, userGoogleId: string): Promise<any> {
+    try {
+      const scheme = await schemeApi.getById(schemeId, userGoogleId)
+      return {
+        ...scheme,
+        extractedContent: extractSchemeContent(scheme)
+      }
+    } catch (error) {
+      throw error
+    }
+  },
+  async searchTopicsInSchemes(userGoogleId: string, searchTerm: string): Promise<any[]> {
+    try {
+      const schemes = await this.getUserSchemesWithContent(userGoogleId)
+      const allTopics: any[] = []
+      schemes.forEach(scheme => {
+        const topics = scheme.extractedContent.topics.filter((topic: any) =>
+          topic.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          topic.description.toLowerCase().includes(searchTerm.toLowerCase())
+        )
+        topics.forEach((topic: any) => {
+          allTopics.push({
+            ...topic,
+            schemeId: scheme.id,
+            schemeName: scheme.subject_name,
+            schoolName: scheme.school_name
+          })
+        })
+      })
+      return allTopics
+    } catch (error) {
+      return []
+    }
+  },
+  async searchSubtopicsInSchemes(userGoogleId: string, searchTerm: string): Promise<any[]> {
+    try {
+      const schemes = await this.getUserSchemesWithContent(userGoogleId)
+      const allSubtopics: any[] = []
+      schemes.forEach(scheme => {
+        scheme.extractedContent.topics.forEach((topic: any) => {
+          const subtopics = (topic.subtopics || []).filter((subtopic: any) =>
+            subtopic.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            subtopic.content.toLowerCase().includes(searchTerm.toLowerCase())
+          )
+          subtopics.forEach((subtopic: any) => {
+            allSubtopics.push({
+              ...subtopic,
+              topicTitle: topic.title,
+              schemeId: scheme.id,
+              schemeName: scheme.subject_name,
+              schoolName: scheme.school_name
+            })
+          })
+        })
+      })
+      return allSubtopics
+    } catch (error) {
+      return []
+    }
+  }
+}
+
+export const timetableSchemeApi = {
+  async createTimetableFromScheme(timetableData: any, userGoogleId: string): Promise<any> {
+    try {
+      const enhancedData = {
+        ...timetableData,
+        scheme_id: timetableData.scheme_id,
+        user_google_id: userGoogleId,
+        created_from_scheme: true,
+        scheme_topics: timetableData.selected_topics || [],
+        scheme_subtopics: timetableData.selected_subtopics || []
+      }
+      const response = await fetch('http://localhost:8000/api/timetables', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: parseInt(userGoogleId) || 1,
+          ...enhancedData
+        })
+      })
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      return await response.json()
+    } catch (error) {
+      throw error
+    }
+  },
+  async updateTimetableContent(timetableId: string, updates: any, userGoogleId: string): Promise<any> {
+    try {
+      const response = await fetch(`http://localhost:8000/api/timetables/${timetableId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: parseInt(userGoogleId) || 1,
+          ...updates
+        })
+      })
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      return await response.json()
+    } catch (error) {
+      throw error
+    }
+  },
+  async getTimetablesByScheme(schemeId: number, userGoogleId: string): Promise<any[]> {
+    try {
+      const response = await fetch(`http://localhost:8000/api/timetables?scheme_id=${schemeId}&user_id=${userGoogleId}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      const result = await response.json()
+      return result.data || []
+    } catch (error) {
+      return []
+    }
+  }
+}
+
+export const sessionHelpers = {
+  getUserIdFromSession(session: any): string {
+    if (!session?.user) return '1'
+    if (session.user.id) return session.user.id.toString()
+    if (session.user.sub) return session.user.sub
+    if (session.user.email) return session.user.email
+    return '1'
+  },
+  validateUserSession(session: any): boolean {
+    return !!(session?.user?.id || session?.user?.email)
+  },
+  getUserDisplayName(session: any): string {
+    if (!session?.user) return 'Guest'
+    return session.user.name || session.user.email?.split('@')[0] || 'User'
+  }
+}
+
+export const contentValidators = {
+  validateSchemeContent(content: any): { isValid: boolean; errors: string[] } {
+    const errors: string[] = []
+    if (!content) {
+      errors.push('Content is required')
+      return { isValid: false, errors }
+    }
+    if (!content.topics || !Array.isArray(content.topics)) {
+      errors.push('Topics array is required')
+    } else {
+      content.topics.forEach((topic: any, index: number) => {
+        if (!topic.title) {
+          errors.push(`Topic ${index + 1} is missing a title`)
+        }
+        if (topic.subtopics && Array.isArray(topic.subtopics)) {
+          topic.subtopics.forEach((subtopic: any, subIndex: number) => {
+            if (!subtopic.title) {
+              errors.push(`Subtopic ${subIndex + 1} in topic ${index + 1} is missing a title`)
+            }
+          })
+        }
+      })
+    }
+    return { isValid: errors.length === 0, errors }
+  },
+  validateTimetableSlot(slot: any): { isValid: boolean; errors: string[] } {
+    const errors: string[] = []
+    if (!slot.day) errors.push('Day is required')
+    if (!slot.timeSlot) errors.push('Time slot is required')
+    if (!slot.subject) errors.push('Subject is required')
+    const validDays = ['MON', 'TUE', 'WED', 'THU', 'FRI']
+    if (slot.day && !validDays.includes(slot.day)) {
+      errors.push('Invalid day format')
+    }
+    return { isValid: errors.length === 0, errors }
+  }
 }
