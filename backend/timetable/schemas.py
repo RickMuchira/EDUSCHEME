@@ -67,6 +67,12 @@ class TimetableResponse(TimetableBase):
     class Config:
         from_attributes = True
 
+class TimetableListResponse(BaseModel):
+    success: bool
+    message: str
+    data: List[TimetableResponse]
+    total: Optional[int] = None
+
 # === ANALYTICS SCHEMAS ===
 class TimetableAnalyticsResponse(BaseModel):
     id: str
@@ -172,3 +178,10 @@ class ShareResponse(BaseModel):
 
     class Config:
         from_attributes = True 
+
+class AutosaveData(BaseModel):
+    timetable_id: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    subject_id: int
+    slots: Optional[List[TimetableSlotCreate]] = None 

@@ -1,8 +1,13 @@
 "use client"
 
+<<<<<<< HEAD
 import { useState, useRef, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+=======
+import { useState, useRef } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+>>>>>>> 5a2d579 (fixed login in issue to databse)
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import LessonSlot from './LessonSlot'
@@ -42,8 +47,6 @@ export default function TimetableGrid({
   conflictSlots 
 }: TimetableGridProps) {
   const [hoveredSlot, setHoveredSlot] = useState<string | null>(null)
-  const [dragStartSlot, setDragStartSlot] = useState<string | null>(null)
-  const [isDragging, setIsDragging] = useState(false)
   const gridRef = useRef<HTMLDivElement>(null)
 
   // Helper function to check if slot is selected
@@ -233,6 +236,7 @@ export default function TimetableGrid({
               <span className="font-medium text-gray-700">Available</span>
             </div>
             <div className="flex items-center gap-2">
+<<<<<<< HEAD
               <div className="w-5 h-5 bg-emerald-500 rounded-lg shadow-sm"></div>
               <span className="font-medium text-gray-700">Single Lesson</span>
             </div>
@@ -243,6 +247,18 @@ export default function TimetableGrid({
             <div className="flex items-center gap-2">
               <div className="w-5 h-5 bg-purple-500 rounded-lg shadow-sm"></div>
               <span className="font-medium text-gray-700">Evening Lesson</span>
+=======
+              <div className="w-5 h-5 bg-blue-50 border-2 border-blue-300 rounded-lg ring-1 ring-blue-200"></div>
+              <span className="font-medium text-gray-700">Selected (Empty Design)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 bg-orange-100 border-2 border-orange-200 rounded-lg"></div>
+              <span className="font-medium text-gray-700">Double Lesson</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 bg-purple-100 border-2 border-purple-200 rounded-lg"></div>
+              <span className="font-medium text-gray-700">Evening Slot</span>
+>>>>>>> 5a2d579 (fixed login in issue to databse)
             </div>
             <div className="flex items-center gap-2">
               <div className="w-5 h-5 bg-red-100 border-2 border-red-500 rounded-lg"></div>

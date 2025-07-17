@@ -7,7 +7,7 @@ from sqlalchemy.types import TypeDecorator, Text as SQLText
 from datetime import datetime
 import json
 
-Base = declarative_base()
+from base import Base
 
 # Custom JSON type for SQLite compatibility
 class JSONType(TypeDecorator):
