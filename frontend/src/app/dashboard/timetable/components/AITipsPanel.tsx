@@ -90,82 +90,80 @@ export default function AITipsPanel({ tips, workloadLevel }: AITipsPanelProps) {
         }
       case 'overloaded':
         return {
-          message: "Schedule is overloaded. Consider reducing lessons or redistributing.",
+          message: "Warning: Your schedule may be too demanding. Consider reducing lessons.",
           type: 'warning',
           icon: <AlertTriangle className="h-4 w-4" />
         }
       default:
         return {
-          message: "Start adding lessons to get personalized recommendations.",
+          message: "Start building your timetable to get personalized recommendations.",
           type: 'info',
-          icon: <Sparkles className="h-4 w-4" />
+          icon: <Info className="h-4 w-4" />
         }
     }
   }
 
-  const workloadInfo = getWorkloadMessage()
+  const workloadMsg = getWorkloadMessage()
 
   return (
-    <Card className="shadow-lg border-0 bg-gradient-to-br from-blue-50 to-purple-50">
+    <Card className="shadow-lg border-0 bg-white/90 backdrop-blur-sm">
       <CardHeader className="pb-4">
         <CardTitle className="flex items-center gap-2 text-lg">
           <Brain className="h-5 w-5 text-purple-600" />
-          AI Insights
-          <Badge variant="secondary" className="ml-auto">
+          AI Scheduling Assistant
+          <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
             <Sparkles className="h-3 w-3 mr-1" />
-            Smart
+            Smart Tips
           </Badge>
         </CardTitle>
       </CardHeader>
       
       <CardContent className="space-y-4">
         
-        {/* Workload Assessment */}
-        <Alert className={cn("border-2", getTipStyle(workloadInfo.type))}>
-          <div className="flex items-start gap-3">
-            {workloadInfo.icon}
-            <div className="flex-1">
-              <AlertDescription className="text-sm font-medium">
-                {workloadInfo.message}
-              </AlertDescription>
-            </div>
+        {/* Workload Assessment Message */}
+        <Alert className={cn(
+          "border-2",
+          workloadMsg.type === 'success' ? 'border-green-200 bg-green-50' :
+          workloadMsg.type === 'warning' ? 'border-orange-200 bg-orange-50' :
+          'border-blue-200 bg-blue-50'
+        )}>
+          <div className="flex items-start gap-2">
+            {workloadMsg.icon}
+            <AlertDescription className={cn(
+              "text-sm",
+              workloadMsg.type === 'success' ? 'text-green-800' :
+              workloadMsg.type === 'warning' ? 'text-orange-800' :
+              'text-blue-800'
+            )}>
+              {workloadMsg.message}
+            </AlertDescription>
           </div>
         </Alert>
 
         {/* AI Tips Carousel */}
-        {tips.length > 0 && (
+        {tips.length > 0 ? (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="font-semibold text-gray-800 flex items-center gap-2">
-                <Lightbulb className="h-4 w-4 text-yellow-500" />
-                Smart Suggestions
+              <h4 className="font-medium text-gray-700 text-sm">
+                Smart Recommendations ({tips.length})
               </h4>
               
               {tips.length > 1 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500">
-                    {currentTipIndex + 1} of {tips.length}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setIsAnimating(true)
-                      setTimeout(() => {
-                        setCurrentTipIndex((prev) => (prev + 1) % tips.length)
-                        setIsAnimating(false)
-                      }, 150)
-                    }}
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                  </Button>
-                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCurrentTipIndex((prev) => (prev + 1) % tips.length)}
+                  className="h-6 px-2 text-xs"
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  Next
+                </Button>
               )}
             </div>
 
             {/* Current Tip Display */}
             <div className={cn(
-              "transition-all duration-300 transform",
+              "transition-all duration-200",
               isAnimating ? "opacity-0 scale-95" : "opacity-100 scale-100"
             )}>
               {tips[currentTipIndex] && (
@@ -209,42 +207,50 @@ export default function AITipsPanel({ tips, workloadLevel }: AITipsPanelProps) {
                     className={cn(
                       "w-2 h-2 rounded-full transition-all duration-200",
                       index === currentTipIndex 
-                        ? "bg-purple-500 w-4" 
-                        : "bg-gray-300 hover:bg-gray-400"
+                        ? "bg-purple-600 w-4" 
+                        : "bg-gray-300 hover:bg-purple-300"
                     )}
                   />
                 ))}
               </div>
             )}
           </div>
-        )}
-
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 gap-3 pt-3 border-t border-purple-200">
-          <div className="text-center p-2 bg-white/50 rounded">
-            <div className="text-sm font-bold text-purple-700">
-              {tips.filter(tip => tip.type === 'success').length}
-            </div>
-            <div className="text-xs text-purple-600">Strengths</div>
-          </div>
-          
-          <div className="text-center p-2 bg-white/50 rounded">
-            <div className="text-sm font-bold text-purple-700">
-              {tips.filter(tip => tip.type === 'optimization').length}
-            </div>
-            <div className="text-xs text-purple-600">Optimizations</div>
-          </div>
-        </div>
-
-        {/* No Tips Message */}
-        {tips.length === 0 && (
-          <div className="text-center py-8 text-gray-500">
-            <Brain className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-            <div className="text-sm font-medium">Building your schedule...</div>
-            <div className="text-xs">Add lessons to get AI recommendations</div>
+        ) : (
+          /* No Tips Available */
+          <div className="text-center py-6 text-gray-500">
+            <Lightbulb className="h-8 w-8 mx-auto mb-2 opacity-50" />
+            <p className="text-sm">
+              Start adding lessons to receive AI-powered scheduling tips!
+            </p>
           </div>
         )}
+
+        {/* Tip Categories Legend */}
+        {tips.length > 0 && (
+          <div className="pt-4 border-t border-gray-100">
+            <h5 className="text-xs font-medium text-gray-600 mb-2">Tip Categories:</h5>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="flex items-center gap-1">
+                <TrendingUp className="h-3 w-3 text-purple-600" />
+                <span className="text-gray-600">Optimization</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Clock className="h-3 w-3 text-yellow-600" />
+                <span className="text-gray-600">Timing</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Target className="h-3 w-3 text-indigo-600" />
+                <span className="text-gray-600">Goals</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3 text-green-600" />
+                <span className="text-gray-600">Success</span>
+              </div>
+            </div>
+          </div>
+        )}
+
       </CardContent>
     </Card>
   )
-} 
+}

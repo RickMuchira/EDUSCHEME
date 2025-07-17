@@ -94,7 +94,7 @@ export function useTimetableAnalytics(selectedSlots: LessonSlot[]) {
   }
 }
 
-// Helper functions (simplified versions)
+// Helper functions for pattern detection and workload calculation
 function detectSchedulePattern(slots: LessonSlot[]) {
   if (slots.length === 0) {
     return {
@@ -148,95 +148,136 @@ function detectSchedulePattern(slots: LessonSlot[]) {
   if (days.length === 5) {
     return {
       type: 'Daily Touchpoint',
-      description: 'Lessons every day of the week'
+      description: 'Consistent daily engagement throughout the week'
+    }
+  }
+
+  if (days.length <= 2) {
+    return {
+      type: 'Concentrated',
+      description: 'Intensive sessions on limited days'
     }
   }
 
   return {
-    type: 'Standard Pattern',
-    description: 'Regular teaching schedule'
+    type: 'Custom Pattern',
+    description: 'Unique schedule tailored to specific needs'
   }
 }
 
 function calculateWorkloadLevel(slots: LessonSlot[]) {
-  const totalMinutes = slots.reduce((total, slot) => {
-    if (slot.isDoubleLesson && slot.doublePosition === 'top') {
-      return total + 80 // Double lesson
-    } else if (!slot.isDoubleLesson) {
-      return total + 40 // Single lesson
-    }
-    return total // Don't count bottom half of double lessons
-  }, 0)
+  const totalSlots = slots.length
+  const doubleLessons = slots.filter(slot => slot.isDoubleLesson && slot.doublePosition === 'top').length
+  const eveningLessons = slots.filter(slot => slot.isEvening).length
+  
+  // Calculate weighted workload (doubles and evenings count more)
+  const weightedLoad = totalSlots + (doubleLessons * 0.5) + (eveningLessons * 0.3)
+  
+  let level: string
+  let percentage: number
 
-  const hoursPerWeek = totalMinutes / 60
-  const recommendedMax = 8 // hours per week
-  const percentage = Math.round((hoursPerWeek / recommendedMax) * 100)
-
-  if (hoursPerWeek < 2) {
-    return {
-      level: 'light',
-      percentage,
-      recommendation: 'Consider adding more lessons for comprehensive coverage'
-    }
-  } else if (hoursPerWeek <= 5) {
-    return {
-      level: 'optimal',
-      percentage,
-      recommendation: 'Perfect balance for effective teaching'
-    }
-  } else if (hoursPerWeek <= 7) {
-    return {
-      level: 'heavy',
-      percentage,
-      recommendation: 'Intensive schedule - ensure adequate preparation time'
-    }
+  if (weightedLoad === 0) {
+    level = 'light'
+    percentage = 0
+  } else if (weightedLoad <= 5) {
+    level = 'light'
+    percentage = Math.round((weightedLoad / 5) * 25)
+  } else if (weightedLoad <= 12) {
+    level = 'optimal'
+    percentage = Math.round(25 + ((weightedLoad - 5) / 7) * 50)
+  } else if (weightedLoad <= 18) {
+    level = 'heavy'
+    percentage = Math.round(75 + ((weightedLoad - 12) / 6) * 20)
   } else {
-    return {
-      level: 'overloaded',
-      percentage,
-      recommendation: 'Consider reducing lessons or redistributing across more days'
-    }
+    level = 'overloaded'
+    percentage = Math.min(100, Math.round(95 + ((weightedLoad - 18) / 5) * 5))
   }
+
+  return { level, percentage }
 }
 
 function generateAITips(slots: LessonSlot[], analytics: TimetableAnalytics): AITip[] {
   const tips: AITip[] = []
 
-  // Workload tips
+  // Empty schedule tip
+  if (slots.length === 0) {
+    tips.push({
+      id: 'empty-schedule',
+      type: 'info',
+      title: 'Start Building Your Timetable',
+      message: 'Click any time slot to add your first lesson. Consider starting with your most important topics.',
+      priority: 'high'
+    })
+    return tips
+  }
+
+  // Workload-based tips
   if (analytics.workloadLevel === 'light') {
     tips.push({
-      id: 'workload-light',
-      type: 'info',
-      title: 'Light Schedule Detected',
-      message: 'Your schedule has room for more lessons. Consider adding sessions for better curriculum coverage.',
-      priority: 'medium'
+      id: 'light-workload',
+      type: 'optimization',
+      title: 'Consider Adding More Lessons',
+      message: 'Your current schedule is quite light. You might benefit from additional practice sessions.',
+      priority: 'medium',
+      actionable: true
     })
-  } else if (analytics.workloadLevel === 'optimal') {
+  }
+
+  if (analytics.workloadLevel === 'overloaded') {
     tips.push({
-      id: 'workload-optimal',
-      type: 'success',
-      title: 'Perfect Balance!',
-      message: 'Your workload is optimal for effective teaching and learning.',
-      priority: 'low'
-    })
-  } else if (analytics.workloadLevel === 'heavy') {
-    tips.push({
-      id: 'workload-heavy',
+      id: 'overloaded-workload',
       type: 'warning',
-      title: 'Intensive Schedule',
-      message: 'Heavy teaching load detected. Ensure you have adequate preparation time between lessons.',
-      priority: 'high'
+      title: 'Heavy Schedule Detected',
+      message: 'Your schedule is very intensive. Consider reducing lessons or spreading them across more days.',
+      priority: 'high',
+      actionable: true
+    })
+  }
+
+  // Pattern-based tips
+  if (analytics.totalDays === 1) {
+    tips.push({
+      id: 'single-day-pattern',
+      type: 'optimization',
+      title: 'Spread Across Multiple Days',
+      message: 'Learning is more effective when distributed across several days rather than concentrated in one.',
+      priority: 'medium',
+      actionable: true
     })
   }
 
   // Double lesson tips
-  if (analytics.doubleLessons > 0) {
+  if (analytics.doubleLessons > 0 && analytics.doubleLessons >= analytics.singleLessons) {
     tips.push({
-      id: 'double-lessons',
-      type: 'success',
-      title: 'Double Lessons Detected',
-      message: 'Great for creative projects, presentations, and in-depth discussions. Plan interactive activities!',
+      id: 'double-lesson-balance',
+      type: 'optimization',
+      title: 'Balance Double and Single Lessons',
+      message: 'Mix double lessons with single lessons for better retention and variety.',
       priority: 'medium'
+    })
+  }
+
+  // Daily distribution tips
+  const dayGaps = checkForGaps(slots)
+  if (dayGaps.length > 0) {
+    tips.push({
+      id: 'schedule-gaps',
+      type: 'optimization',
+      title: 'Schedule Gaps Detected',
+      message: `Consider adding review sessions to fill ${dayGaps.join(', ')} gaps for better continuity.`,
+      priority: 'medium',
+      actionable: true
+    })
+  }
+
+  // Success tips
+  if (analytics.workloadLevel === 'optimal') {
+    tips.push({
+      id: 'optimal-workload',
+      type: 'success',
+      title: 'Perfect Balance Achieved!',
+      message: 'Your schedule has an optimal workload. Great job balancing intensity with sustainability!',
+      priority: 'low'
     })
   }
 
@@ -251,19 +292,6 @@ function generateAITips(slots: LessonSlot[], analytics: TimetableAnalytics): AIT
     })
   }
 
-  // Distribution tips
-  const dayGaps = checkForGaps(slots)
-  if (dayGaps.length > 0) {
-    tips.push({
-      id: 'schedule-gaps',
-      type: 'optimization',
-      title: 'Schedule Gaps Detected',
-      message: `${dayGaps.join(', ')} gaps in your schedule. Plan review activities to maintain continuity.`,
-      priority: 'medium',
-      actionable: true
-    })
-  }
-
   // Efficiency tips
   if (analytics.efficiency < 60) {
     tips.push({
@@ -273,6 +301,17 @@ function generateAITips(slots: LessonSlot[], analytics: TimetableAnalytics): AIT
       message: 'Consider grouping lessons on fewer days to reduce setup time and increase focus.',
       priority: 'medium',
       actionable: true
+    })
+  }
+
+  // Goal-oriented tips
+  if (analytics.totalSessions >= 10) {
+    tips.push({
+      id: 'milestone-reached',
+      type: 'goal',
+      title: 'Great Progress!',
+      message: `You've scheduled ${analytics.totalSessions} sessions! Consider setting specific learning goals for each.`,
+      priority: 'low'
     })
   }
 
@@ -303,4 +342,4 @@ function checkForGaps(slots: LessonSlot[]): string[] {
   }
 
   return gaps
-} 
+}

@@ -100,4 +100,4 @@ export interface SchedulePattern {
   description: string
   strength: number
   suggestions: string[]
-} 
+}

@@ -9,12 +9,8 @@ import {
   ChevronRight,
   AlertTriangle,
   Sparkles,
-<<<<<<< HEAD
-  Plus
-=======
   Plus,
   X
->>>>>>> 5a2d579 (fixed login in issue to databse)
 } from 'lucide-react'
 import { TimeSlot, Subject } from '../types/timetable'
 
@@ -56,7 +52,6 @@ export default function LessonSlot({
       return cn(baseStyles, "bg-red-50 border-red-300 text-red-700 ring-2 ring-red-200 animate-pulse")
     }
 
-<<<<<<< HEAD
     switch (slotType) {
       case 'single':
         return cn(
@@ -106,143 +101,61 @@ export default function LessonSlot({
             </div>
           )}
           
-          <div className="opacity-60 group-hover:opacity-100 transition-all duration-300">
-            {/* Improved empty state design */}
-            <div className="p-3 rounded-lg bg-gray-100 group-hover:bg-blue-100 transition-colors duration-300 mb-3 mx-auto w-fit">
-              <Plus className="h-6 w-6 text-gray-400 group-hover:text-blue-500 transition-colors" />
-            </div>
-            
-            <div className="space-y-1">
-              <div className="text-sm font-medium text-gray-600 group-hover:text-blue-700">
-                {timeSlot.time}
-              </div>
-              <div className="text-xs text-gray-400 group-hover:text-blue-500">
-                Period {timeSlot.period}
-              </div>
-              <div className="text-xs text-gray-400 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                Click to schedule
-              </div>
-            </div>
-            
-            {/* Evening indicator for empty slots */}
-            {timeSlot.isEvening && (
-              <div className="absolute top-2 right-2">
-                <Moon className="h-4 w-4 text-purple-400 group-hover:text-purple-600" />
-              </div>
-            )}
+          <Plus className="h-6 w-6 mx-auto mb-1 opacity-60 group-hover:opacity-100" />
+          <div className="text-xs font-medium opacity-70 group-hover:opacity-100">
+            {timeSlot.isEvening ? 'Evening' : 'Add Lesson'}
           </div>
+          
+          {timeSlot.isEvening && (
+            <Moon className="h-3 w-3 mx-auto mt-1 opacity-50" />
+          )}
         </div>
       )
     }
 
-    const duration = slotType.includes('double') ? '80 min' : '40 min'
-    const isEvening = slotType === 'evening'
-
     return (
-      <div className="text-center w-full relative">
-        {/* Evening Indicator */}
-        {isEvening && (
-          <Moon className="absolute -top-1 -right-1 h-4 w-4 text-purple-200" />
-        )}
-
-        {/* Double Lesson Connector */}
-        {slotType === 'double-top' && (
-          <ChevronRight className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 h-3 w-3 text-orange-200" />
-        )}
-
-        {/* Subject Display */}
-        <div className="space-y-2">
-          <div className="font-bold text-sm truncate">
-            {subject?.name || 'Subject'}
+      <div className="text-center w-full">
+        
+        {/* Subject Info */}
+        {subject && (
+          <div className="space-y-1">
+            <div className="font-semibold text-sm truncate">{subject.name}</div>
+            {subject.code && (
+              <div className="text-xs opacity-80">{subject.code}</div>
+            )}
           </div>
-          <div className="text-xs opacity-90 space-y-1">
-            <div>{timeSlot.time}</div>
-            <Badge variant="secondary" className="text-xs bg-white bg-opacity-30 text-current">
-              {duration}
+        )}
+
+        {/* Lesson Type Indicator */}
+        <div className="flex items-center justify-center gap-1 mt-2">
+          {slotType === 'single' && (
+            <Badge variant="secondary" className="text-xs bg-white/20 text-white border-white/30">
+              <Clock className="h-3 w-3 mr-1" />
+              40min
             </Badge>
-          </div>
+          )}
           
-          {slotType.includes('double') && (
-            <Badge variant="secondary" className="text-xs bg-white bg-opacity-20 text-current">
-              <ChevronRight className="h-3 w-3 mr-1" />
+          {(slotType === 'double-top' || slotType === 'double-bottom') && (
+            <Badge variant="secondary" className="text-xs bg-white/20 text-white border-white/30">
+              <Sparkles className="h-3 w-3 mr-1" />
               Double
             </Badge>
           )}
-        </div>
-
-        {/* Hover Effects */}
-        <div className="absolute inset-0 bg-white bg-opacity-0 group-hover:bg-opacity-10 rounded-xl transition-all duration-200" />
-=======
-    // ALWAYS SHOW AS EMPTY CARDS - No filled states
-    return cn(
-      baseStyles,
-      "bg-white border-gray-200 text-gray-500",
-      "hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600",
-      isHovered && "bg-blue-50 border-blue-400 text-blue-700 shadow-md",
-      isSelected && "ring-2 ring-blue-300 bg-blue-25", // Subtle indication that it's selected
-      canCreateDouble && "ring-2 ring-orange-200 ring-opacity-50"
-    )
-  }
-
-  const getSlotContent = () => {
-    // Always show empty state regardless of selection status
-    return (
-      <div className="text-center w-full relative">
-        {/* Show selected indicator in corner */}
-        {isSelected && (
-          <div className="absolute -top-2 -right-2 z-10">
-            <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700 shadow-sm">
-              <CheckMarkIcon className="h-3 w-3" />
-            </Badge>
-          </div>
-        )}
-
-        {canCreateDouble && !isSelected && (
-          <div className="absolute -top-2 -right-2 z-10">
-            <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-700 shadow-sm">
-              <ChevronRight className="h-3 w-3 mr-1" />
-              Double?
-            </Badge>
-          </div>
-        )}
-        
-        <div className="opacity-60 group-hover:opacity-100 transition-all duration-300">
-          {/* Always show empty state design */}
-          <div className="p-3 rounded-lg bg-gray-100 group-hover:bg-blue-100 transition-colors duration-300 mb-3 mx-auto w-fit">
-            {isSelected ? (
-              <X className="h-6 w-6 text-gray-400 group-hover:text-red-500 transition-colors" />
-            ) : (
-              <Plus className="h-6 w-6 text-gray-400 group-hover:text-blue-500 transition-colors" />
-            )}
-          </div>
           
-          <div className="space-y-1">
-            <div className="text-sm font-medium text-gray-600 group-hover:text-blue-700">
-              {timeSlot.time}
-            </div>
-            <div className="text-xs text-gray-400 group-hover:text-blue-500">
-              Period {timeSlot.period}
-            </div>
-            <div className="text-xs text-gray-400 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
-              {isSelected ? 'Click to remove' : 'Click to schedule'}
-            </div>
-            
-            {/* Show subject name if selected */}
-            {isSelected && subject && (
-              <div className="text-xs font-medium text-blue-600 mt-1">
-                {subject.name}
-              </div>
-            )}
-          </div>
-          
-          {/* Evening indicator for empty slots */}
-          {timeSlot.isEvening && (
-            <div className="absolute top-2 left-2">
-              <Moon className="h-4 w-4 text-purple-400 group-hover:text-purple-600" />
-            </div>
+          {slotType === 'evening' && (
+            <Badge variant="secondary" className="text-xs bg-white/20 text-white border-white/30">
+              <Moon className="h-3 w-3 mr-1" />
+              Evening
+            </Badge>
           )}
         </div>
->>>>>>> 5a2d579 (fixed login in issue to databse)
+
+        {/* Remove button on hover */}
+        <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md hover:bg-red-600 transition-colors">
+            <X className="h-3 w-3" />
+          </div>
+        </div>
       </div>
     )
   }
@@ -254,47 +167,22 @@ export default function LessonSlot({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      {getSlotContent()}
-<<<<<<< HEAD
-
-      {/* Conflict Warning */}
       {hasConflict && (
-        <div className="absolute -top-2 -right-2 z-10">
-          <AlertTriangle className="h-5 w-5 text-red-600 animate-bounce" />
+        <div className="absolute top-1 left-1">
+          <AlertTriangle className="h-4 w-4 text-red-600" />
         </div>
       )}
-
-      {/* Double Lesson Hint */}
-      {showDoubleHint && (
-        <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-orange-600 text-white px-3 py-2 rounded-lg text-xs whitespace-nowrap z-20 shadow-lg animate-in fade-in duration-300">
-          <Sparkles className="h-3 w-3 inline mr-1" />
-          Click adjacent slot for double lesson!
-          <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-orange-600"></div>
+      
+      {getSlotContent()}
+      
+      {canCreateDouble && slotType === 'empty' && (
+        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+          <div className="bg-orange-600 text-white text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap">
+            Click to create double lesson
+            <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-orange-600"></div>
+          </div>
         </div>
       )}
     </div>
   )
 }
-=======
-    </div>
-  )
-}
-
-// Simple check mark icon component
-const CheckMarkIcon = ({ className }: { className?: string }) => (
-  <svg
-    className={className}
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-    xmlns="http://www.w3.org/2000/svg"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M5 13l4 4L19 7"
-    />
-  </svg>
-)
->>>>>>> 5a2d579 (fixed login in issue to databse)

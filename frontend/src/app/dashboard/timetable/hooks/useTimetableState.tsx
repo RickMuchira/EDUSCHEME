@@ -1,8 +1,8 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { LessonSlot, Subject, TimetableData } from '../types/timetable'
 import { useSession } from 'next-auth/react'
+import { LessonSlot, TimetableData, Subject } from '../types/timetable'
 
 interface TimetableState {
   timetableData: TimetableData
@@ -13,58 +13,51 @@ interface TimetableState {
   timetableId: string | null
 }
 
-// Real database save function
-const saveToDatabase = async (data: any, userId: number) => {
+// Database API functions
+async function saveToDatabase(data: any, userId: number) {
   try {
-    const response = await fetch('http://localhost:8000/api/timetables/autosave/', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        ...data,
-        user_id: userId,
-      }),
+    const url = data.timetable_id 
+      ? `http://localhost:8000/api/timetables/${data.timetable_id}/autosave?user_id=${userId}`
+      : `http://localhost:8000/api/timetables/autosave?user_id=${userId}`
+    
+    const response = await fetch(url, {
+      method: data.timetable_id ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
     })
     
     if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`HTTP error! status: ${response.status} - ${errorText}`)
+      throw new Error(`HTTP error! status: ${response.status}`)
     }
     
     const result = await response.json()
     return result
   } catch (error) {
     console.error('Database save error:', error)
-    alert('Failed to save timetable to database: ' + (error as Error).message)
     throw error
   }
 }
 
-// Load from database function
-const loadFromDatabase = async (userId: number) => {
+async function loadFromDatabase(userId: number) {
   try {
-    const response = await fetch(`http://localhost:8000/api/timetables/?user_id=${userId}`)
+    const response = await fetch(`http://localhost:8000/api/timetables?user_id=${userId}`)
     
     if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`HTTP error! status: ${response.status} - ${errorText}`)
+      throw new Error(`HTTP error! status: ${response.status}`)
     }
     
     const result = await response.json()
     return result
   } catch (error) {
     console.error('Database load error:', error)
-    alert('Failed to load timetable from database: ' + (error as Error).message)
     throw error
   }
 }
 
-// Delete from database function
-const deleteFromDatabase = async (timetableId: string, userId: number) => {
+async function deleteFromDatabase(timetableId: string, userId: number) {
   try {
     const response = await fetch(`http://localhost:8000/api/timetables/${timetableId}?user_id=${userId}`, {
-      method: 'DELETE',
+      method: 'DELETE'
     })
     
     if (!response.ok) {
@@ -212,9 +205,9 @@ export function useTimetableState() {
             timestamp: new Date().toISOString()
           }
           localStorage.setItem(storageKey, JSON.stringify(fallbackData))
-          console.log('💾 Fallback save to localStorage completed')
+          console.log('💾 Fallback auto-save to localStorage completed')
         } catch (localError) {
-          console.error('❌ Fallback save also failed:', localError)
+          console.error('❌ Fallback auto-save also failed:', localError)
         }
       } finally {
         setIsAutoSaving(false)
@@ -224,101 +217,12 @@ export function useTimetableState() {
 
   // Set current subject
   const setCurrentSubject = useCallback((subject: Subject | null) => {
-    setState(prev => ({ ...prev, currentSubject: subject }))
+    setState((prev: TimetableState) => ({
+      ...prev,
+      currentSubject: subject
+    }))
     triggerAutoSave()
   }, [triggerAutoSave])
-
-  // Add a lesson slot
-  const addSlot = useCallback((slot: LessonSlot) => {
-    setState(prev => {
-      // Check for conflicts
-      const hasConflict = prev.selectedSlots.some(
-        existing => existing.day === slot.day && existing.timeSlot === slot.timeSlot
-      )
-      
-      if (hasConflict) {
-        return prev // Don't add if conflict exists
-      }
-
-      const newSlots = [...prev.selectedSlots, slot]
-      addToHistory(newSlots)
-      
-      return {
-        ...prev,
-        selectedSlots: newSlots
-      }
-    })
-    triggerAutoSave()
-  }, [addToHistory, triggerAutoSave])
-
-  // Remove a lesson slot - FIXED VERSION
-  const removeSlot = useCallback((day: string, timeSlot: string) => {
-    setState(prev => {
-      // Find the slot to remove
-      const slotToRemove = prev.selectedSlots.find(
-        slot => slot.day === day && slot.timeSlot === timeSlot
-      )
-      
-      if (!slotToRemove) {
-        return prev // Nothing to remove
-      }
-
-      let newSlots = prev.selectedSlots.filter(
-        slot => !(slot.day === day && slot.timeSlot === timeSlot)
-      )
-
-      // If removing a double lesson, remove both parts
-      if (slotToRemove.isDoubleLesson) {
-        const doublePartner = prev.selectedSlots.find(slot => 
-          slot.day === slotToRemove.day &&
-          slot.isDoubleLesson &&
-          slot.doublePosition !== slotToRemove.doublePosition &&
-          Math.abs(slot.period - slotToRemove.period) === 1
-        )
-        
-        if (doublePartner) {
-          newSlots = newSlots.filter(
-            slot => !(slot.day === doublePartner.day && slot.timeSlot === doublePartner.timeSlot)
-          )
-        }
-      }
-
-      addToHistory(newSlots)
-      
-      return {
-        ...prev,
-        selectedSlots: newSlots
-      }
-    })
-    triggerAutoSave()
-  }, [addToHistory, triggerAutoSave])
-
-  // Create double lesson
-  const createDoubleLesson = useCallback((slot1: LessonSlot, slot2: LessonSlot) => {
-    setState(prev => {
-      // Determine which is top and bottom based on period
-      const topSlot = slot1.period < slot2.period ? slot1 : slot2
-      const bottomSlot = slot1.period < slot2.period ? slot2 : slot1
-
-      const newSlots = prev.selectedSlots.map(slot => {
-        if (slot.day === topSlot.day && slot.timeSlot === topSlot.timeSlot) {
-          return { ...slot, isDoubleLesson: true, doublePosition: 'top' as const }
-        }
-        if (slot.day === bottomSlot.day && slot.timeSlot === bottomSlot.timeSlot) {
-          return { ...slot, isDoubleLesson: true, doublePosition: 'bottom' as const }
-        }
-        return slot
-      })
-
-      addToHistory(newSlots)
-      
-      return {
-        ...prev,
-        selectedSlots: newSlots
-      }
-    })
-    triggerAutoSave()
-  }, [addToHistory, triggerAutoSave])
 
   // Clear all slots
   const clearAll = useCallback(() => {
@@ -549,6 +453,76 @@ export function useTimetableState() {
     setSelectedSubtopics(subtopics)
     triggerAutoSave()
   }, [triggerAutoSave])
+
+  // Add slot
+  const addSlot = useCallback((slot: LessonSlot) => {
+    setState((prev: TimetableState) => {
+      const newSlots = [...prev.selectedSlots, slot]
+      addToHistory(newSlots)
+      return {
+        ...prev,
+        selectedSlots: newSlots
+      }
+    })
+    triggerAutoSave()
+  }, [addToHistory, triggerAutoSave])
+
+  // Remove slot
+  const removeSlot = useCallback((day: string, timeSlot: string) => {
+    setState((prev: TimetableState) => {
+      let newSlots = prev.selectedSlots.filter(
+        (slot: LessonSlot) => !(slot.day === day && slot.timeSlot === timeSlot)
+      )
+      // If removing part of a double lesson, remove both parts
+      const removedSlot = prev.selectedSlots.find(
+        (slot: LessonSlot) => slot.day === day && slot.timeSlot === timeSlot
+      )
+      if (removedSlot?.isDoubleLesson) {
+        // Find and remove the partner slot
+        const partnerPosition = removedSlot.doublePosition === 'top' ? 'bottom' : 'top'
+        const doublePartner = prev.selectedSlots.find((slot: LessonSlot) => 
+          slot.day === removedSlot.day && 
+          slot.isDoubleLesson && 
+          slot.doublePosition === partnerPosition
+        )
+        if (doublePartner) {
+          newSlots = newSlots.filter((slot: LessonSlot) => 
+            !(slot.day === doublePartner.day && slot.timeSlot === doublePartner.timeSlot)
+          )
+        }
+      }
+      addToHistory(newSlots)
+      return {
+        ...prev,
+        selectedSlots: newSlots
+      }
+    })
+    triggerAutoSave()
+  }, [addToHistory, triggerAutoSave])
+
+  // Create double lesson
+  const createDoubleLesson = useCallback((slot1: LessonSlot, slot2: LessonSlot) => {
+    setState((prev: TimetableState) => {
+      // Determine which is top and bottom based on period
+      const topSlot = slot1.period < slot2.period ? slot1 : slot2
+      const bottomSlot = slot1.period < slot2.period ? slot2 : slot1
+      const newSlots = prev.selectedSlots.map((slot: LessonSlot) => {
+        if (slot.day === topSlot.day && slot.timeSlot === topSlot.timeSlot) {
+          return { ...slot, isDoubleLesson: true, doublePosition: 'top' as const }
+        }
+        if (slot.day === bottomSlot.day && slot.timeSlot === bottomSlot.timeSlot) {
+          return { ...slot, isDoubleLesson: true, doublePosition: 'bottom' as const }
+        }
+        return slot
+      })
+      addToHistory(newSlots)
+      return {
+        ...prev,
+        selectedSlots: newSlots
+      }
+    })
+    triggerAutoSave()
+  }, [addToHistory, triggerAutoSave])
 
   // Load on mount
   useEffect(() => {
