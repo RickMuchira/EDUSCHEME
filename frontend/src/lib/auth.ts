@@ -11,10 +11,37 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async signIn({ account, profile }) {
       // Only allow verified Google accounts
-      if (account?.provider === "google") {
-        return profile?.email_verified === true
+      if (account?.provider === "google" && profile?.email_verified) {
+        try {
+          // Create or update user in database
+          const userData = {
+            google_id: profile.sub,
+            email: profile.email,
+            name: profile.name,
+            picture: profile.picture
+          };
+
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(userData),
+          });
+
+          if (!response.ok) {
+            console.error('Failed to create/update user in database');
+            return false;
+          }
+
+          console.log('User created/updated successfully in database');
+          return true;
+        } catch (error) {
+          console.error('Error creating user in database:', error);
+          return false;
+        }
       }
-      return false
+      return false;
     },
     async session({ session, token }) {
       // Add user ID to session for easy access

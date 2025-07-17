@@ -162,25 +162,12 @@ async def create_scheme(
    try:
        logger.info(f"Creating scheme for user: {user_google_id}")
        logger.info(f"Scheme data: {scheme.dict()}")
-       # Try by google_id first
+       # Get user by Google ID
        user = crud.user.get_by_google_id(db, google_id=user_google_id)
        if not user:
-           # Try by email as fallback
-           user = crud.user.get_by_email(db, email=user_google_id)
-       if not user:
-           # Auto-create user if not found
-           user_email = getattr(scheme, 'user_email', None) or (scheme.dict().get('user_email'))
-           user_name = getattr(scheme, 'user_name', None) or (scheme.dict().get('user_name'))
-           user_picture = getattr(scheme, 'user_picture', None) or (scheme.dict().get('user_picture'))
-           if user_email and user_name:
-               from schemas import UserCreate
-               user_in = UserCreate(google_id=user_google_id, email=user_email, name=user_name, picture=user_picture)
-               user = crud.user.create(db, obj_in=user_in)
-               logger.info(f"Auto-created user: {user.id} - {user.email}")
-           else:
-               logger.error(f"User not found and insufficient info to create: {user_google_id}")
-               raise HTTPException(status_code=404, detail="User not found and cannot be auto-created")
+           raise HTTPException(status_code=404, detail="User not found. Please ensure user is created first.")
        logger.info(f"Found user: {user.id} - {user.email}")
+       # Create scheme data
        scheme_data = scheme.dict()
        scheme_data["user_id"] = user.id
        logger.info(f"Creating scheme with data: {scheme_data}")

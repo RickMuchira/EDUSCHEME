@@ -33,7 +33,6 @@ interface SchoolLevel {
   forms_grades?: FormGrade[]
 }
 
-
 interface FormGrade {
   id: number
   name: string
@@ -183,7 +182,7 @@ export default function SchemeOfWorkPage() {
   }
 
   const handleSaveAndContinue = async () => {
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       setErrors({ general: 'Please sign in to continue' });
       return;
     }
@@ -196,11 +195,7 @@ export default function SchemeOfWorkPage() {
     setErrors({ general: '' });
 
     try {
-      // Use Google ID from session (session.user.id)
-      const userGoogleId = session?.user?.id;
-      const userEmail = session?.user?.email;
-      const userName = session?.user?.name;
-      const userPicture = session?.user?.image;
+      const userGoogleId = session.user.id;
       const schemeData = {
         school_name: formData.schoolName,
         subject_name: subjects.find(s => s.id.toString() === selectedSubject)?.name || '',
@@ -218,10 +213,7 @@ export default function SchemeOfWorkPage() {
         scheme_metadata: {
           created_from: 'scheme_of_work_wizard',
           step: 1
-        },
-        user_email: userEmail,
-        user_name: userName,
-        user_picture: userPicture
+        }
       };
 
       const response = await apiClient.request(
@@ -231,21 +223,18 @@ export default function SchemeOfWorkPage() {
           body: JSON.stringify(schemeData),
         }
       );
+      
       if (response && response.data && response.data.id) {
         console.log('Scheme saved successfully:', response);
-        localStorage.setItem('currentSchemeId', response.data.id.toString())
-        localStorage.setItem('schemeFormData', JSON.stringify({ ...formData, selectedSubject }))
+        localStorage.setItem('currentSchemeId', response.data.id.toString());
+        localStorage.setItem('schemeFormData', JSON.stringify({ ...formData, selectedSubject }));
         router.push('/dashboard/timetable');
       } else {
         setErrors({ general: response?.message || 'Failed to save scheme. Please try again.' });
       }
     } catch (error: any) {
       console.error('Error saving scheme:', error);
-      if (error.message && error.message.includes('Cannot connect to backend server')) {
-        setErrors({ general: 'Cannot connect to backend server. Please make sure the FastAPI server is running on localhost:8000' });
-      } else {
-        setErrors({ general: error.message || 'Failed to save scheme. Please try again.' });
-      }
+      setErrors({ general: error.message || 'Failed to save scheme. Please try again.' });
     } finally {
       setIsLoading(false);
     }

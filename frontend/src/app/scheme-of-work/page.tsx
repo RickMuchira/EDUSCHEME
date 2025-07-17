@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { schoolLevelApi, schemeApi, type SchoolLevel, type FormGrade, type Term } from '@/lib/api';
+import apiClient from '@/lib/apiClient';
 
 interface FormData {
   schoolName: string;
@@ -50,6 +51,7 @@ const STEPS = [
     icon: CheckCircle,
   },
 ];
+
 
 export default function SchemeOfWorkPage() {
   const { data: session, status } = useSession();
@@ -152,51 +154,53 @@ export default function SchemeOfWorkPage() {
   };
 
     const handleSaveAndContinue = async () => {
-    if (!session?.user?.email) {
-            setError('Please sign in to continue');
-            return;
-        }
+        if (!session?.user?.id) {
+                setError('Please sign in to continue');
+                return;
+            }
 
-    if (!validateStep1()) {
-            return;
-        }
+        if (!validateStep1()) {
+                return;
+            }
 
-        setLoading(true);
-        setError('');
+            setLoading(true);
+            setError('');
 
-        try {
-            const schemeData = {
-        school_name: formData.schoolName.trim(),
-                subject_name: formData.subject,
-                school_level_id: parseInt(formData.schoolLevel),
-                form_grade_id: parseInt(formData.form),
-                term_id: parseInt(formData.term),
-                status: 'completed',
-                progress: 100,
-                content: {
-                    form_data: formData,
-                    step_completed: 'school_details'
-                },
-                scheme_metadata: {
-                    created_from: 'scheme_of_work_wizard',
-          step: 1,
-          timestamp: new Date().toISOString()
-        }
-      };
+            try {
+                const userGoogleId = session.user.id;
+                const schemeData = {
+                    school_name: formData.schoolName.trim(),
+                    subject_name: formData.subject,
+                    school_level_id: parseInt(formData.schoolLevel),
+                    form_grade_id: parseInt(formData.form),
+                    term_id: parseInt(formData.term),
+                    status: 'completed',
+                    progress: 100,
+                    content: {
+                        form_data: formData,
+                        step_completed: 'school_details'
+                    },
+                    scheme_metadata: {
+                        created_from: 'scheme_of_work_wizard',
+                        step: 1,
+                        timestamp: new Date().toISOString()
+                    }
+                };
 
-      const response = await schemeApi.create(schemeData, session.user.email);
-      
-      if (response) {
-        console.log('Scheme saved successfully:', response);
-        router.push('/dashboard/timetable');
-      }
-    } catch (error: any) {
-            console.error('Error saving scheme:', error);
-      setError(error.message || 'Failed to save scheme. Please try again.');
-        } finally {
-            setLoading(false);
-        }
-    };
+                const response = await schemeApi.create(schemeData, userGoogleId);
+                
+                if (response) {
+                    console.log('Scheme saved successfully:', response);
+                    router.push('/dashboard/timetable');
+                }
+            } catch (error: any) {
+                    console.error('Error saving scheme:', error);
+                    setError(error.message || 'Failed to save scheme. Please try again.');
+            } finally {
+                    setLoading(false);
+            }
+        };
+
 
   // Show loading while checking authentication
   if (status === 'loading') {
