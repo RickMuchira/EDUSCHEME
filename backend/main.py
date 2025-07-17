@@ -14,6 +14,8 @@ import crud, models, schemas
 from fastapi.exception_handlers import RequestValidationError
 from fastapi.exceptions import RequestValidationError
 from fastapi import Request
+import uuid
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -1407,6 +1409,209 @@ def create_bulk_structure(
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+# ============= TIMETABLE ENDPOINTS =============
+
+@app.post("/api/timetables", response_model=schemas.ResponseWrapper, tags=["Timetables"])
+async def create_timetable(
+    timetable_data: dict,
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Create a new timetable linked to a scheme"""
+    try:
+        logger.info(f"Creating timetable for user: {user_google_id}")
+        user = crud.user.get_by_google_id(db, google_id=user_google_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        scheme_id = timetable_data.get('scheme_id')
+        if not scheme_id:
+            raise HTTPException(status_code=400, detail="scheme_id is required")
+        scheme = crud.scheme.get(db=db, id=scheme_id)
+        if not scheme or scheme.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Scheme not found or not authorized")
+        timetable_id = str(uuid.uuid4())
+        db_timetable = models.Timetable(
+            id=timetable_id,
+            user_id=user.id,
+            scheme_id=scheme_id,
+            name=timetable_data.get('name', f"{scheme.subject_name} Timetable"),
+            description=timetable_data.get('description', f"Timetable for {scheme.subject_name}"),
+            selected_topics=timetable_data.get('selected_topics', []),
+            selected_subtopics=timetable_data.get('selected_subtopics', []),
+            status='draft'
+        )
+        db.add(db_timetable)
+        slots_data = timetable_data.get('slots', [])
+        for slot_data in slots_data:
+            db_slot = models.TimetableSlot(
+                id=str(uuid.uuid4()),
+                timetable_id=timetable_id,
+                day_of_week=slot_data.get('day_of_week'),
+                time_slot=slot_data.get('time_slot'),
+                period_number=slot_data.get('period_number'),
+                topic_id=slot_data.get('topic_id'),
+                subtopic_id=slot_data.get('subtopic_id'),
+                lesson_title=slot_data.get('lesson_title'),
+                is_double_lesson=slot_data.get('is_double_lesson', False),
+                is_evening=slot_data.get('is_evening', False)
+            )
+            db.add(db_slot)
+        db.commit()
+        db.refresh(db_timetable)
+        logger.info(f"Timetable created successfully: {db_timetable.id}")
+        return schemas.ResponseWrapper(
+            success=True,
+            message="Timetable created successfully",
+            data={
+                "id": db_timetable.id,
+                "name": db_timetable.name,
+                "scheme_id": db_timetable.scheme_id,
+                "selected_topics": db_timetable.selected_topics,
+                "selected_subtopics": db_timetable.selected_subtopics,
+                "total_slots": len(slots_data),
+                "created_at": db_timetable.created_at.isoformat()
+            }
+        )
+    except HTTPException as he:
+        logger.error(f"HTTP Exception: {he.detail}")
+        raise he
+    except Exception as e:
+        logger.error(f"Error creating timetable: {str(e)}")
+        db.rollback()
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"Failed to create timetable: {str(e)}",
+            data=None
+        )
+
+@app.get("/api/timetables/by-scheme/{scheme_id}", response_model=schemas.ResponseWrapper, tags=["Timetables"])
+async def get_timetable_by_scheme(
+    scheme_id: int,
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Get timetable for a specific scheme"""
+    try:
+        user = crud.user.get_by_google_id(db, google_id=user_google_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        timetable = db.query(models.Timetable).filter(
+            models.Timetable.scheme_id == scheme_id,
+            models.Timetable.user_id == user.id,
+            models.Timetable.is_active == True
+        ).first()
+        if not timetable:
+            return schemas.ResponseWrapper(
+                success=False,
+                message="No timetable found for this scheme",
+                data=None
+            )
+        slots = db.query(models.TimetableSlot).filter(
+            models.TimetableSlot.timetable_id == timetable.id
+        ).all()
+        return schemas.ResponseWrapper(
+            success=True,
+            message="Timetable retrieved successfully",
+            data={
+                "id": timetable.id,
+                "name": timetable.name,
+                "description": timetable.description,
+                "scheme_id": timetable.scheme_id,
+                "selected_topics": timetable.selected_topics or [],
+                "selected_subtopics": timetable.selected_subtopics or [],
+                "slots": [
+                    {
+                        "id": slot.id,
+                        "day_of_week": slot.day_of_week,
+                        "time_slot": slot.time_slot,
+                        "period_number": slot.period_number,
+                        "topic_id": slot.topic_id,
+                        "subtopic_id": slot.subtopic_id,
+                        "lesson_title": slot.lesson_title,
+                        "is_double_lesson": slot.is_double_lesson,
+                        "is_evening": slot.is_evening
+                    }
+                    for slot in slots
+                ],
+                "created_at": timetable.created_at.isoformat(),
+                "updated_at": timetable.updated_at.isoformat()
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error getting timetable: {str(e)}")
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"Failed to get timetable: {str(e)}",
+            data=None
+        )
+
+@app.put("/api/timetables/{timetable_id}", response_model=schemas.ResponseWrapper, tags=["Timetables"])
+async def update_timetable(
+    timetable_id: str,
+    timetable_data: dict,
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Update existing timetable"""
+    try:
+        user = crud.user.get_by_google_id(db, google_id=user_google_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        timetable = db.query(models.Timetable).filter(
+            models.Timetable.id == timetable_id,
+            models.Timetable.user_id == user.id
+        ).first()
+        if not timetable:
+            raise HTTPException(status_code=404, detail="Timetable not found")
+        if 'selected_topics' in timetable_data:
+            timetable.selected_topics = timetable_data['selected_topics']
+        if 'selected_subtopics' in timetable_data:
+            timetable.selected_subtopics = timetable_data['selected_subtopics']
+        if 'name' in timetable_data:
+            timetable.name = timetable_data['name']
+        if 'description' in timetable_data:
+            timetable.description = timetable_data['description']
+        timetable.updated_at = datetime.utcnow()
+        if 'slots' in timetable_data:
+            db.query(models.TimetableSlot).filter(
+                models.TimetableSlot.timetable_id == timetable_id
+            ).delete()
+            for slot_data in timetable_data['slots']:
+                db_slot = models.TimetableSlot(
+                    id=str(uuid.uuid4()),
+                    timetable_id=timetable_id,
+                    day_of_week=slot_data.get('day_of_week'),
+                    time_slot=slot_data.get('time_slot'),
+                    period_number=slot_data.get('period_number'),
+                    topic_id=slot_data.get('topic_id'),
+                    subtopic_id=slot_data.get('subtopic_id'),
+                    lesson_title=slot_data.get('lesson_title'),
+                    is_double_lesson=slot_data.get('is_double_lesson', False),
+                    is_evening=slot_data.get('is_evening', False)
+                )
+                db.add(db_slot)
+        db.commit()
+        db.refresh(timetable)
+        return schemas.ResponseWrapper(
+            success=True,
+            message="Timetable updated successfully",
+            data={
+                "id": timetable.id,
+                "updated_at": timetable.updated_at.isoformat()
+            }
+        )
+    except HTTPException as he:
+        logger.error(f"HTTP Exception: {he.detail}")
+        raise he
+    except Exception as e:
+        logger.error(f"Error updating timetable: {str(e)}")
+        db.rollback()
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"Failed to update timetable: {str(e)}",
+            data=None
+        )
 
 # Development endpoints (remove in production)
 if __name__ == "__main__":

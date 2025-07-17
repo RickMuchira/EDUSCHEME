@@ -62,6 +62,7 @@ interface Subject {
 }
 
 interface ContentSelectionPanelProps {
+  currentScheme: any // The scheme data from the previous step
   subjects: Subject[]
   currentSubject: Subject | null
   availableTopics: Topic[]
@@ -70,14 +71,15 @@ interface ContentSelectionPanelProps {
   selectedSubtopicIds: number[]
   loading: boolean
   error: string | null
-  onSubjectChange: (subjectId: string) => void
   onTopicSelect: (topicId: number, checked: boolean) => void
   onSubtopicSelect: (subtopicId: number, checked: boolean) => void
   onBulkTopicSelect: (topicIds: number[], selected: boolean) => void
   onBulkSubtopicSelect: (subtopicIds: number[], selected: boolean) => void
+  // Remove onSubjectChange since subject is fixed from scheme
 }
 
 const ContentSelectionPanel = ({
+  currentScheme,
   subjects,
   currentSubject,
   availableTopics,
@@ -86,12 +88,20 @@ const ContentSelectionPanel = ({
   selectedSubtopicIds,
   loading,
   error,
-  onSubjectChange,
   onTopicSelect,
   onSubtopicSelect,
   onBulkTopicSelect,
   onBulkSubtopicSelect
 }: ContentSelectionPanelProps) => {
+  // Add scheme subject context
+  const schemeSubject = currentScheme ? {
+    id: currentScheme.subject_id,
+    name: currentScheme.subject_name,
+    code: currentScheme.subject_name?.substring(0, 3).toUpperCase() || 'SUB',
+    color: '#3B82F6', // You can customize this
+    is_active: true
+  } : null;
+
   const [searchTerm, setSearchTerm] = useState('')
   const [filterBy, setFilterBy] = useState<'all' | 'active' | 'inactive'>('all')
   const [expandedTopics, setExpandedTopics] = useState<Set<number>>(new Set())
@@ -346,34 +356,37 @@ const ContentSelectionPanel = ({
       
       <CardContent className="space-y-6">
         
-        {/* Subject Selection */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-            <GraduationCap className="h-4 w-4" />
-            Subject
-          </label>
-          <Select 
-            value={currentSubject?.id?.toString() || ''} 
-            onValueChange={onSubjectChange}
-            disabled={loading}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder={loading ? "Loading subjects..." : "Select a subject"} />
-            </SelectTrigger>
-            <SelectContent>
-              {subjects.map((subject) => (
-                <SelectItem key={subject.id} value={subject.id.toString()}>
-                  <div className="flex items-center gap-2">
-                    <div 
-                      className="w-3 h-3 rounded" 
-                      style={{ backgroundColor: subject.color || '#6B7280' }}
-                    />
-                    {subject.name} ({subject.code})
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        {/* Scheme Context Display */}
+        <div className="space-y-4">
+          <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+            <div className="flex items-center gap-2 mb-2">
+              <GraduationCap className="h-5 w-5 text-blue-600" />
+              <span className="font-medium text-blue-800">Current Scheme Subject</span>
+            </div>
+            {currentScheme ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div 
+                    className="w-4 h-4 rounded" 
+                    style={{ backgroundColor: schemeSubject?.color || '#3B82F6' }}
+                  />
+                  <span className="font-medium text-blue-900">{currentScheme.subject_name}</span>
+                </div>
+                <div className="text-sm text-blue-700 space-y-1">
+                  <p><span className="font-medium">School:</span> {currentScheme.school_name}</p>
+                  <p><span className="font-medium">Level:</span> Form/Grade {currentScheme.form_grade_id}</p>
+                  <p><span className="font-medium">Term:</span> {currentScheme.term_id}</p>
+                </div>
+                <div className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded">
+                  Topics and subtopics are filtered for this subject only
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-orange-700">
+                No scheme selected. Please create a scheme first.
+              </div>
+            )}
+          </div>
         </div>
 
         {currentSubject && (

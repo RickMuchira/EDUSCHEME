@@ -6,6 +6,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.types import TypeDecorator, Text as SQLText
 from datetime import datetime
 import json
+import uuid
 
 from base import Base
 
@@ -40,6 +41,7 @@ class User(Base):
     # Relationships
     schemes = relationship("SchemeOfWork", back_populates="user", cascade="all, delete-orphan")
     lesson_plans = relationship("LessonPlan", back_populates="user", cascade="all, delete-orphan")
+    timetables = relationship("Timetable", back_populates="user")
 
 # Scheme of Work model
 class SchemeOfWork(Base):
@@ -72,6 +74,7 @@ class SchemeOfWork(Base):
     term = relationship("Term")
     subject = relationship("Subject")
     lesson_plans = relationship("LessonPlan", back_populates="scheme", cascade="all, delete-orphan")
+    timetables = relationship("Timetable", back_populates="scheme")
 
     def to_dict(self):
         """Convert SQLAlchemy model to dictionary for serialization"""
@@ -279,3 +282,46 @@ class AdminUser(Base):
     is_superuser = Column(Boolean, default=False)
     created_at = Column(DateTime, default=func.now())
     last_login = Column(DateTime)
+
+# --- Timetable Models for Save & Continue System ---
+class Timetable(Base):
+    __tablename__ = "timetables"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    scheme_id = Column(Integer, ForeignKey("schemes_of_work.id"), nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
+    status = Column(String(50), default="draft")
+    selected_topics = Column(JSONType)
+    selected_subtopics = Column(JSONType)
+    total_lessons = Column(Integer, default=0)
+    total_weeks = Column(Integer, default=0)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    is_active = Column(Boolean, default=True)
+    # Simple relationships without back_populates/backref
+    user = relationship("User", back_populates="timetables")
+    scheme = relationship("SchemeOfWork", back_populates="timetables")
+    slots = relationship("TimetableSlot", back_populates="timetable", cascade="all, delete-orphan")
+
+class TimetableSlot(Base):
+    __tablename__ = "timetable_slots"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    timetable_id = Column(String, ForeignKey("timetables.id", ondelete="CASCADE"), nullable=False)
+    day_of_week = Column(String(10), nullable=False)
+    time_slot = Column(String(20), nullable=False)
+    period_number = Column(Integer, nullable=False)
+    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=True)
+    subtopic_id = Column(Integer, ForeignKey("subtopics.id"), nullable=True)
+    lesson_title = Column(String(255))
+    lesson_objectives = Column(Text)
+    activities = Column(JSONType)
+    resources = Column(JSONType)
+    assessment_notes = Column(Text)
+    is_double_lesson = Column(Boolean, default=False)
+    double_position = Column(String(10))
+    is_evening = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=func.now())
+    timetable = relationship("Timetable", back_populates="slots")
+    topic = relationship("Topic")
+    subtopic = relationship("Subtopic")
