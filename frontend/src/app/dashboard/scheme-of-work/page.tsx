@@ -52,7 +52,7 @@ interface Term {
 
 const steps = [
   { id: 1, name: 'School Details', description: 'Fill the form with the correct details', completed: false },
-  { id: 2, name: 'Create Timetable', description: 'Build your teaching schedule', completed: false }
+  { id: 2, name: 'Review & Submit', description: 'Review and finalize your scheme', completed: false }
 ]
 
 export default function SchemeOfWorkPage() {

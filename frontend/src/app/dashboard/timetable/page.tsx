@@ -1,3 +1,4 @@
+// frontend/src/app/dashboard/timetable/page.tsx
 "use client"
 
 import { useState, useEffect, useCallback } from 'react'
@@ -5,11 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { 
   Calendar, 
   Clock, 
-  BookOpen, 
   Brain, 
   Save, 
   Download, 
@@ -17,23 +16,12 @@ import {
   Undo2,
   RotateCcw,
   Settings,
-  School,
-  GraduationCap,
-  FileText,
-  ChevronRight,
-  ChevronDown,
-  Target,
-  List,
-  Users,
-  Building2,
   Edit,
   CheckCircle2,
   Sparkles,
   Info,
   AlertTriangle,
   Database,
-  Trash2,
-  FolderOpen,
   Play
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -42,15 +30,15 @@ import TimetableGrid from './components/TimetableGrid'
 import AnalysisPanel from './components/AnalysisPanel'
 import AITipsPanel from './components/AITipsPanel'
 import TimetableInstructions from './components/TimetableInstructions'
+import ContentSelectionPanel from './components/ContentSelectionPanel'
 import { useTimetableState } from './hooks/useTimetableState'
 import { useTimetableAnalytics } from './hooks/useTimetableAnalytics'
 import { TimetableData, LessonSlot } from './types/timetable'
-import { schemeApi } from '@/lib/api'
+import { subjectApi, topicApi, subtopicApi } from '@/lib/api'
 import { useSession } from 'next-auth/react'
 
 export default function TimetablePage() {
   const { data: session } = useSession()
-  const [schemeData, setSchemeData] = useState<any>(null)
   const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
   const [currentSubject, setCurrentSubject] = useState<any>(null)
   const [availableTopics, setAvailableTopics] = useState<any[]>([])
@@ -58,10 +46,9 @@ export default function TimetablePage() {
   const [selectedTopicIds, setSelectedTopicIds] = useState<number[]>([])
   const [selectedSubtopicIds, setSelectedSubtopicIds] = useState<number[]>([])
   const [showContextModal, setShowContextModal] = useState(false)
-  const [schoolLevelName, setSchoolLevelName] = useState<string>('')
-  const [formName, setFormName] = useState<string>('')
-  const [termName, setTermName] = useState<string>('')
   const [showInstructions, setShowInstructions] = useState(true)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   
   const {
     timetableData,
@@ -69,90 +56,183 @@ export default function TimetablePage() {
     currentSubject: currentSubjectState,
     selectedTopics,
     selectedSubtopics,
-    isAutoSaving,
-    lastSaveTime,
+    history,
+    historyIndex,
     timetableId,
-    setCurrentSubject: setCurrentSubjectState,
     addSlot,
     removeSlot,
-    createDoubleLesson,
-    clearAll,
-    undo,
-    saveToStorage,
-    loadFromStorage,
-    loadTimetable,
-    deleteTimetable,
+    setCurrentSubjectState,
+    setSelectedTopics,
+    setSelectedSubtopics,
+    saveState,
+    loadState,
     canUndo,
-    updateSelectedTopics,
-    updateSelectedSubtopics
+    canRedo,
+    undo,
+    redo,
+    clearHistory,
+    reset,
+    lastSaveTime,
+    isAutoSaving,
+    selectedScheme,
+    setSelectedScheme
   } = useTimetableState()
 
-  const {
-    analytics,
-    aiTips,
-    workloadLevel,
-    conflictWarnings,
-    updateAnalytics
-  } = useTimetableAnalytics(selectedSlots)
+  const { analytics, conflictWarnings } = useTimetableAnalytics(selectedSlots)
 
-  // Load subtopics for selected topics
-  const loadSubtopicsForTopics = useCallback(async (topicIds: number[]) => {
-    try {
-      const allSubtopics: any[] = []
-      for (const topicId of topicIds) {
-        const subtopics = await schemeApi.getSubtopicsByTopicId(topicId)
-        if (subtopics) {
-          allSubtopics.push(...subtopics)
-        }
-      }
-      setAvailableSubtopics(allSubtopics)
-    } catch (error) {
-      console.error('Error loading subtopics:', error)
-    }
+  // Load subjects on component mount
+  useEffect(() => {
+    loadSubjects()
   }, [])
 
-  // Toggle topic selection with database auto-save
-  const toggleTopicSelection = useCallback(async (topicId: number) => {
-    setSelectedTopicIds(prev => {
-      const newSelection = prev.includes(topicId)
-        ? prev.filter(id => id !== topicId)
-        : [...prev, topicId]
+  // Load topics when subject changes
+  useEffect(() => {
+    if (currentSubject?.id) {
+      loadTopicsBySubject(currentSubject.id)
+    }
+  }, [currentSubject])
+
+  // Load subtopics when topics are selected
+  useEffect(() => {
+    if (selectedTopicIds.length > 0) {
+      loadSubtopicsByTopics(selectedTopicIds)
+    } else {
+      setAvailableSubtopics([])
+    }
+  }, [selectedTopicIds])
+
+  const loadSubjects = async () => {
+    try {
+      setLoading(true)
+      setError(null)
       
-      // Load subtopics for selected topics
-      if (!prev.includes(topicId)) {
-        loadSubtopicsForTopics([...prev, topicId])
+      console.log('🔄 Loading subjects...')
+      const response = await subjectApi.getAll()
+      
+      if (response.success && response.data) {
+        setAvailableSubjects(response.data)
+        console.log('✅ Subjects loaded:', response.data.length)
+        
+        // Set first subject as default if none selected
+        if (response.data.length > 0 && !currentSubject) {
+          const firstSubject = response.data[0]
+          setCurrentSubject(firstSubject)
+          console.log('📝 Default subject set:', firstSubject.name)
+        }
       } else {
-        // Remove subtopics of deselected topic
-        loadSubtopicsForTopics(newSelection)
+        throw new Error(response.message || 'Failed to load subjects')
+      }
+    } catch (error: any) {
+      console.error('❌ Error loading subjects:', error)
+      setError(`Failed to load subjects: ${error.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadTopicsBySubject = async (subjectId: number) => {
+    try {
+      setLoading(true)
+      console.log('🔄 Loading topics for subject:', subjectId)
+      
+      const response = await topicApi.getBySubject(subjectId)
+      
+      if (response.success && response.data) {
+        setAvailableTopics(response.data)
+        console.log('✅ Topics loaded:', response.data.length)
+        
+        // Clear previous selections
+        setSelectedTopicIds([])
+        setAvailableSubtopics([])
+        setSelectedSubtopicIds([])
+      } else {
+        throw new Error(response.message || 'Failed to load topics')
+      }
+    } catch (error: any) {
+      console.error('❌ Error loading topics:', error)
+      setError(`Failed to load topics: ${error.message}`)
+      setAvailableTopics([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadSubtopicsByTopics = async (topicIds: number[]) => {
+    try {
+      setLoading(true)
+      console.log('🔄 Loading subtopics for topics:', topicIds)
+      
+      // Load subtopics for all selected topics
+      const allSubtopics: any[] = []
+      
+      for (const topicId of topicIds) {
+        const response = await subtopicApi.getByTopic(topicId)
+        if (response.success && response.data) {
+          allSubtopics.push(...response.data)
+        }
       }
       
-      // Update the topics in the timetable state for auto-saving to database
-      const selectedTopicsData = availableTopics.filter(topic => newSelection.includes(topic.id))
-      updateSelectedTopics(selectedTopicsData)
+      setAvailableSubtopics(allSubtopics)
+      console.log('✅ Subtopics loaded:', allSubtopics.length)
       
-      return newSelection
-    })
-  }, [availableTopics, updateSelectedTopics, loadSubtopicsForTopics])
+      // Clear previous subtopic selections
+      setSelectedSubtopicIds([])
+    } catch (error: any) {
+      console.error('❌ Error loading subtopics:', error)
+      setError(`Failed to load subtopics: ${error.message}`)
+      setAvailableSubtopics([])
+    } finally {
+      setLoading(false)
+    }
+  }
 
-  // Toggle subtopic selection with database auto-save
-  const toggleSubtopicSelection = useCallback((subtopicId: number) => {
+  const handleSubjectChange = (subjectId: string) => {
+    const subject = availableSubjects.find(s => s.id.toString() === subjectId)
+    if (subject) {
+      setCurrentSubject(subject)
+      console.log('📝 Subject changed to:', subject.name)
+    }
+  }
+
+  const handleTopicSelect = (topicId: number, checked: boolean) => {
+    setSelectedTopicIds(prev => {
+      if (checked) {
+        return [...prev, topicId]
+      } else {
+        return prev.filter(id => id !== topicId)
+      }
+    })
+  }
+
+  const handleSubtopicSelect = (subtopicId: number, checked: boolean) => {
     setSelectedSubtopicIds(prev => {
-      const newSelection = prev.includes(subtopicId)
-        ? prev.filter(id => id !== subtopicId)
-        : [...prev, subtopicId]
-      
-      // Update the subtopics in the timetable state for auto-saving to database
-      const selectedSubtopicsData = availableSubtopics.filter(subtopic => newSelection.includes(subtopic.id))
-      updateSelectedSubtopics(selectedSubtopicsData)
-      
-      return newSelection
+      if (checked) {
+        return [...prev, subtopicId]
+      } else {
+        return prev.filter(id => id !== subtopicId)
+      }
     })
-  }, [availableSubtopics, updateSelectedSubtopics])
+  }
 
-  // Handle slot click with proper validation
-  const handleSlotClick = useCallback((slot: LessonSlot) => {
+  const handleBulkTopicSelect = (topicIds: number[], selected: boolean) => {
+    if (selected) {
+      setSelectedTopicIds(prev => [...new Set([...prev, ...topicIds])])
+    } else {
+      setSelectedTopicIds(prev => prev.filter(id => !topicIds.includes(id)))
+    }
+  }
+
+  const handleBulkSubtopicSelect = (subtopicIds: number[], selected: boolean) => {
+    if (selected) {
+      setSelectedSubtopicIds(prev => [...new Set([...prev, ...subtopicIds])])
+    } else {
+      setSelectedSubtopicIds(prev => prev.filter(id => !subtopicIds.includes(id)))
+    }
+  }
+
+  const handleSlotClick = useCallback((slot: any) => {
     if (!currentSubject) {
-      alert('No subject found in your scheme of work. Please check your scheme setup.')
+      alert('Please select a subject first.')
       return
     }
 
@@ -166,7 +246,6 @@ export default function TimetablePage() {
     )
 
     if (isCurrentlySelected) {
-      // Remove the slot if it's currently selected
       removeSlot(slot.day, slot.timeSlot)
       console.log(`🗑️ Removed slot: ${slot.day} ${slot.timeSlot}`)
     } else {
@@ -174,7 +253,6 @@ export default function TimetablePage() {
       const selectedTopicData = availableTopics.filter(topic => selectedTopicIds.includes(topic.id))
       const selectedSubtopicData = availableSubtopics.filter(subtopic => selectedSubtopicIds.includes(subtopic.id))
 
-      // Add the slot if it's not selected
       const newSlot = {
         ...slot,
         subject: currentSubject,
@@ -187,139 +265,84 @@ export default function TimetablePage() {
     }
   }, [selectedSlots, removeSlot, addSlot, currentSubject, selectedTopicIds, selectedSubtopicIds, availableTopics, availableSubtopics])
 
-  // Load scheme data and subjects
-  const loadSchemeData = useCallback(async () => {
-    try {
-      // For now, we'll use mock data or fallbacks
-      // In a real app, this would fetch from your scheme API
-      const mockSchemeData = {
-        school_level: 'secondary',
-        form: '12',
-        term: '30',
-        subject: 'chemistry'
-      }
-      
-      setSchemeData(mockSchemeData)
-      
-      // Load subjects
-      const subjects = await schemeApi.getAllSubjects()
-      if (subjects && subjects.length > 0) {
-        setAvailableSubjects(subjects)
-        const firstSubject = subjects[0]
-        setCurrentSubject(firstSubject)
-        setCurrentSubjectState(firstSubject)
-        
-        // Load topics for the first subject
-        const topics = await schemeApi.getTopicsBySubjectId(firstSubject.id)
-        setAvailableTopics(topics || [])
-        
-        // Set fallback names
-        setSchoolLevelName('Secondary')
-        setFormName('Form 12')
-        setTermName('Term 30')
-      }
-    } catch (error) {
-      console.error('Error loading subjects:', error)
-    }
-  }, [setCurrentSubjectState])
-
-  // Load data on mount
-  useEffect(() => {
-    if (session?.user?.email) {
-      loadSchemeData()
-    }
-  }, [session, loadSchemeData])
-
-  // Update analytics in real-time when slots change
-  useEffect(() => {
-    updateAnalytics()
-    console.log(`📊 Analytics updated: ${selectedSlots.length} slots`)
-  }, [selectedSlots, updateAnalytics])
-
-  // Helper functions for display names
-  const getSchoolLevelName = (id: string) => {
-    return schoolLevelName || 'Secondary'
-  }
-
-  const getFormName = (id: string) => {
-    return formName || 'Form 12'
-  }
-
-  const getTermName = (id: string) => {
-    return termName || 'Term 30'
-  }
-
-  // Format last save time
-  const formatLastSaveTime = (timestamp: string) => {
-    if (!timestamp) return 'Never'
-    const date = new Date(timestamp)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffMins = Math.floor(diffMs / 60000)
+  const handleSaveAndContinue = () => {
+    // Save current state
+    saveState()
     
-    if (diffMins < 1) return 'Just now'
-    if (diffMins < 60) return `${diffMins}m ago`
-    const diffHours = Math.floor(diffMins / 60)
-    if (diffHours < 24) return `${diffHours}h ago`
-    return date.toLocaleDateString()
+    // Navigate to next step or show success message
+    console.log('✅ Timetable saved successfully!')
+    alert('Timetable saved successfully! You can continue building or export your schedule.')
+  }
+
+  const handleExportTimetable = () => {
+    // Export functionality
+    console.log('📄 Exporting timetable...')
+    alert('Export functionality coming soon!')
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-emerald-50 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-6">
       <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* Context Information Card */}
-        {currentSubject && (
-          <Card className="border-blue-200 bg-gradient-to-r from-blue-50 to-emerald-50">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-6">
-                  <div className="flex items-center space-x-3">
-                    <School className="h-6 w-6 text-blue-600" />
-                    <div>
-                      <p className="text-sm text-gray-600">School Level</p>
-                      <p className="font-semibold text-gray-900">{getSchoolLevelName(schemeData?.school_level || '')}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center space-x-3">
-                    <GraduationCap className="h-6 w-6 text-emerald-600" />
-                    <div>
-                      <p className="text-sm text-gray-600">Form</p>
-                      <p className="font-semibold text-gray-900">{getFormName(schemeData?.form || '')}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center space-x-3">
-                    <Calendar className="h-6 w-6 text-purple-600" />
-                    <div>
-                      <p className="text-sm text-gray-600">Term</p>
-                      <p className="font-semibold text-gray-900">{getTermName(schemeData?.term || '')}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center space-x-3">
-                    <BookOpen className="h-6 w-6 text-orange-600" />
-                    <div>
-                      <p className="text-sm text-gray-600">Subject</p>
-                      <p className="font-semibold text-gray-900">{currentSubject.name}</p>
-                    </div>
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              {error}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Context Modal - Show current setup */}
+        <Dialog open={showContextModal} onOpenChange={setShowContextModal}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5 text-blue-600" />
+                Current Timetable Context
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-2">Academic Context</h4>
+                  <div className="space-y-2 text-sm">
+                    <p><span className="font-medium">Subject:</span> {currentSubject?.name || 'Not selected'}</p>
+                    <p><span className="font-medium">Code:</span> {currentSubject?.code || 'N/A'}</p>
+                    <p><span className="font-medium">Status:</span> {currentSubject?.is_active ? 'Active' : 'Inactive'}</p>
                   </div>
                 </div>
-                
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setShowContextModal(true)}
-                  className="text-blue-600 border-blue-200 hover:bg-blue-50"
-                >
-                  <Edit className="h-4 w-4 mr-2" />
-                  View Details
-                </Button>
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-2">Content Selection</h4>
+                  <div className="space-y-2 text-sm">
+                    <p><span className="font-medium">Topics Selected:</span> {selectedTopicIds.length}</p>
+                    <p><span className="font-medium">Subtopics Selected:</span> {selectedSubtopicIds.length}</p>
+                    <p><span className="font-medium">Total Slots:</span> {selectedSlots.length}</p>
+                  </div>
+                </div>
               </div>
-            </CardContent>
-          </Card>
-        )}
+
+              <div className="border-t pt-4">
+                <h4 className="font-medium text-gray-900 mb-3">Current Timetable Statistics</h4>
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div className="bg-blue-50 p-3 rounded-lg">
+                    <p className="text-2xl font-bold text-blue-600">{selectedSlots.length}</p>
+                    <p className="text-sm text-blue-700">Total Slots</p>
+                  </div>
+                  <div className="bg-emerald-50 p-3 rounded-lg">
+                    <p className="text-2xl font-bold text-emerald-600">{selectedTopicIds.length}</p>
+                    <p className="text-sm text-emerald-700">Topics Selected</p>
+                  </div>
+                  <div className="bg-purple-50 p-3 rounded-lg">
+                    <p className="text-2xl font-bold text-purple-600">{selectedSubtopicIds.length}</p>
+                    <p className="text-sm text-purple-700">Subtopics Selected</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Main Header */}
         <div className="flex items-center justify-between">
@@ -329,7 +352,7 @@ export default function TimetablePage() {
             </div>
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Interactive Timetable Builder</h1>
-              <p className="text-gray-600">Design your perfect teaching schedule with database-powered insights</p>
+              <p className="text-gray-600">Design your perfect teaching schedule with enhanced content selection</p>
               {timetableId && (
                 <p className="text-sm text-blue-600 mt-1">
                   <Database className="h-3 w-3 inline mr-1" />
@@ -342,52 +365,75 @@ export default function TimetablePage() {
           {/* Status Badge and Controls */}
           <div className="flex items-center space-x-3">
             {isAutoSaving ? (
-              <div className="flex items-center gap-2 text-blue-600">
-                <Save className="h-4 w-4 animate-spin" />
-                <span className="text-sm">Saving to database...</span>
-              </div>
+              <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 animate-pulse">
+                <Save className="h-3 w-3 mr-1" />
+                Saving...
+              </Badge>
             ) : (
-              <div className="flex items-center gap-2 text-green-600">
-                <Database className="h-4 w-4" />
-                <span className="text-sm">Saved to database</span>
-                {lastSaveTime && (
-                  <span className="text-xs text-gray-500">
-                    {formatLastSaveTime(lastSaveTime)}
-                  </span>
-                )}
-              </div>
+              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                <CheckCircle2 className="h-3 w-3 mr-1" />
+                Saved
+              </Badge>
             )}
             
-            <Badge variant="secondary" className="bg-emerald-100 text-emerald-800 border-emerald-200">
-              <Clock className="h-3 w-3 mr-1" />
-              Workload: {workloadLevel}
-            </Badge>
-            
-            <Button variant="outline" size="sm" onClick={() => undo()} disabled={!canUndo}>
-              <Undo2 className="h-4 w-4 mr-1" />
-              Undo
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => setShowContextModal(true)}
+              className="text-blue-600 border-blue-200 hover:bg-blue-50"
+            >
+              <Edit className="h-4 w-4 mr-2" />
+              View Context
             </Button>
-            
-            <Button variant="outline" size="sm" onClick={clearAll} disabled={selectedSlots.length === 0}>
-              <RotateCcw className="h-4 w-4 mr-1" />
-              Clear All
+
+            <Button 
+              variant="default" 
+              size="sm"
+              onClick={handleSaveAndContinue}
+              className="bg-green-600 hover:bg-green-700"
+              disabled={selectedSlots.length === 0}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              Save & Continue
             </Button>
           </div>
         </div>
 
         {/* Instructions Panel */}
         {showInstructions && (
-          <TimetableInstructions 
-            onClose={() => setShowInstructions(false)}
-          />
+          <TimetableInstructions onClose={() => setShowInstructions(false)} />
         )}
 
-        {/* Quick Start Alert */}
-        {!showInstructions && selectedSlots.length === 0 && (
+        {/* Enhanced Content Selection Panel */}
+        <ContentSelectionPanel
+          subjects={availableSubjects}
+          currentSubject={currentSubject}
+          availableTopics={availableTopics}
+          availableSubtopics={availableSubtopics}
+          selectedTopicIds={selectedTopicIds}
+          selectedSubtopicIds={selectedSubtopicIds}
+          loading={loading}
+          error={error}
+          onSubjectChange={handleSubjectChange}
+          onTopicSelect={handleTopicSelect}
+          onSubtopicSelect={handleSubtopicSelect}
+          onBulkTopicSelect={handleBulkTopicSelect}
+          onBulkSubtopicSelect={handleBulkSubtopicSelect}
+        />
+
+        {/* Success message when content is selected */}
+        {selectedTopicIds.length > 0 || selectedSubtopicIds.length > 0 ? (
+          <Alert className="border-green-200 bg-green-50">
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <AlertDescription className="text-green-800">
+              ✅ Great! You've selected your content. Now click on time slots below to build your timetable.
+            </AlertDescription>
+          </Alert>
+        ) : (
           <Alert>
-            <Sparkles className="h-4 w-4" />
+            <Info className="h-4 w-4" />
             <AlertDescription>
-              You're building your timetable. Keep adding lessons and check the analysis panel for optimization tips.
+              📚 Please select a subject and choose topics/subtopics first, then you can start building your timetable.
             </AlertDescription>
           </Alert>
         )}
@@ -405,7 +451,7 @@ export default function TimetablePage() {
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
           
-          {/* Timetable Grid - Takes most space (2/3 of the width) */}
+          {/* Timetable Grid */}
           <div className="xl:col-span-2">
             <Card className="shadow-lg border-0 bg-white">
               <CardHeader className="pb-4">
@@ -420,7 +466,7 @@ export default function TimetablePage() {
                     Database Synced
                   </Badge>
                 </CardTitle>
-                {!showInstructions && selectedSlots.length === 0 && (
+                {!showInstructions && selectedSlots.length === 0 && (selectedTopicIds.length > 0 || selectedSubtopicIds.length > 0) && (
                   <CardDescription className="flex items-center gap-2">
                     <Info className="h-4 w-4 text-blue-500" />
                     Click any time slot to start building your timetable. All changes are automatically saved to the database.
@@ -428,7 +474,7 @@ export default function TimetablePage() {
                 )}
               </CardHeader>
               <CardContent>
-                <TimetableGrid
+                <TimetableGrid 
                   selectedSlots={selectedSlots}
                   onSlotClick={handleSlotClick}
                   currentSubject={currentSubject}
@@ -438,197 +484,53 @@ export default function TimetablePage() {
             </Card>
           </div>
 
-          {/* Right Panel - Analysis and AI Tips */}
-          <div className="xl:col-span-2 space-y-6">
-            
-            {/* Analysis Panel */}
+          {/* Analysis Panel */}
+          <div className="xl:col-span-1">
             <AnalysisPanel 
-              analytics={analytics}
+              analytics={analytics} 
               isAutoSaving={isAutoSaving}
               lastSaveTime={lastSaveTime}
             />
-            
-            {/* AI Tips Panel */}
+          </div>
+
+          {/* AI Tips Panel */}
+          <div className="xl:col-span-1">
             <AITipsPanel 
-              tips={aiTips}
-              workloadLevel={workloadLevel}
+              selectedSlots={selectedSlots}
+              analytics={analytics}
+              conflictWarnings={conflictWarnings}
             />
-            
           </div>
         </div>
 
-        {/* Topic and Subtopic Selection */}
-        {currentSubject && availableTopics.length > 0 && (
-          <Card className="mt-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Target className="h-5 w-5 text-purple-600" />
-                Select Topics & Subtopics for {currentSubject.name}
-              </CardTitle>
-              <CardDescription>
-                Choose which topics and subtopics to include in your timetable. Changes are automatically saved.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              
-              {/* Topics Selection */}
-              <div>
-                <h4 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
-                  <List className="h-4 w-4" />
-                  Topics ({selectedTopicIds.length} selected)
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {availableTopics.map(topic => (
-                    <div
-                      key={topic.id}
-                      onClick={() => toggleTopicSelection(topic.id)}
-                      className={`p-3 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
-                        selectedTopicIds.includes(topic.id)
-                          ? 'bg-purple-50 border-purple-300 text-purple-800'
-                          : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-purple-50 hover:border-purple-200'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">{topic.name}</p>
-                          {topic.code && (
-                            <p className="text-xs opacity-70">{topic.code}</p>
-                          )}
-                        </div>
-                        {selectedTopicIds.includes(topic.id) && (
-                          <CheckCircle2 className="h-5 w-5 text-purple-600" />
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Subtopics Selection */}
-              {availableSubtopics.length > 0 && (
-                <div>
-                  <h4 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
-                    <ChevronRight className="h-4 w-4" />
-                    Subtopics ({selectedSubtopicIds.length} selected)
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
-                    {availableSubtopics.map(subtopic => (
-                      <div
-                        key={subtopic.id}
-                        onClick={() => toggleSubtopicSelection(subtopic.id)}
-                        className={`p-2 rounded-md border cursor-pointer transition-all duration-200 text-sm ${
-                          selectedSubtopicIds.includes(subtopic.id)
-                            ? 'bg-blue-50 border-blue-300 text-blue-800'
-                            : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-blue-50 hover:border-blue-200'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="truncate">{subtopic.name}</span>
-                          {selectedSubtopicIds.includes(subtopic.id) && (
-                            <CheckCircle2 className="h-3 w-3 text-blue-600 flex-shrink-0 ml-1" />
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-            </CardContent>
-          </Card>
+        {/* Action Buttons */}
+        {selectedSlots.length > 0 && (
+          <div className="flex justify-center space-x-4 pt-6">
+            <Button variant="outline" onClick={() => reset()}>
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Reset Timetable
+            </Button>
+            
+            <Button variant="outline" onClick={handleExportTimetable}>
+              <Download className="h-4 w-4 mr-2" />
+              Export Schedule
+            </Button>
+            
+            <Button variant="outline">
+              <Share2 className="h-4 w-4 mr-2" />
+              Share Timetable
+            </Button>
+            
+            <Button 
+              onClick={handleSaveAndContinue}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <Play className="h-4 w-4 mr-2" />
+              Continue to Next Step
+            </Button>
+          </div>
         )}
-
-        {/* Add the Save & Continue button below the topic/subtopic selection UI */}
-        <div className="flex justify-end mt-4">
-          <Button
-            onClick={async () => {
-              const success = await saveToStorage();
-              if (success) {
-                window.location.href = "/scheme";
-              } else {
-                alert("Failed to save. Please try again.");
-              }
-            }}
-            className="w-full sm:w-auto"
-          >
-            Save & Continue
-          </Button>
-        </div>
-
       </div>
-
-      {/* Context Modal */}
-      <Dialog open={showContextModal} onOpenChange={setShowContextModal}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-blue-600" />
-              Timetable Context Details
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-6">
-            
-            {/* Current Context */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-3">
-                <div className="flex items-center space-x-3">
-                  <School className="h-5 w-5 text-blue-600" />
-                  <div>
-                    <p className="text-sm text-gray-600">School Level</p>
-                    <p className="font-medium">{getSchoolLevelName(schemeData?.school_level || '')}</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center space-x-3">
-                  <Users className="h-5 w-5 text-emerald-600" />
-                  <div>
-                    <p className="text-sm text-gray-600">Form</p>
-                    <p className="font-medium">{getFormName(schemeData?.form || '')}</p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="space-y-3">
-                <div className="flex items-center space-x-3">
-                  <Calendar className="h-5 w-5 text-purple-600" />
-                  <div>
-                    <p className="text-sm text-gray-600">Term</p>
-                    <p className="font-medium">{getTermName(schemeData?.term || '')}</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center space-x-3">
-                  <BookOpen className="h-5 w-5 text-orange-600" />
-                  <div>
-                    <p className="text-sm text-gray-600">Subject</p>
-                    <p className="font-medium">{currentSubject?.name}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Statistics */}
-            <div className="border-t pt-4">
-              <h4 className="font-medium text-gray-900 mb-3">Current Timetable Statistics</h4>
-              <div className="grid grid-cols-3 gap-4 text-center">
-                <div className="bg-blue-50 p-3 rounded-lg">
-                  <p className="text-2xl font-bold text-blue-600">{selectedSlots.length}</p>
-                  <p className="text-sm text-blue-700">Total Slots</p>
-                </div>
-                <div className="bg-emerald-50 p-3 rounded-lg">
-                  <p className="text-2xl font-bold text-emerald-600">{selectedTopicIds.length}</p>
-                  <p className="text-sm text-emerald-700">Topics Selected</p>
-                </div>
-                <div className="bg-purple-50 p-3 rounded-lg">
-                  <p className="text-2xl font-bold text-purple-600">{selectedSubtopicIds.length}</p>
-                  <p className="text-sm text-purple-700">Subtopics Selected</p>
-                </div>
-              </div>
-            </div>
-
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

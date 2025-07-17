@@ -365,69 +365,6 @@ export const enhancedSchemeApi = {
   }
 }
 
-export const timetableSchemeApi = {
-  async createTimetableFromScheme(timetableData: any, userGoogleId: string): Promise<any> {
-    try {
-      const enhancedData = {
-        ...timetableData,
-        scheme_id: timetableData.scheme_id,
-        user_google_id: userGoogleId,
-        created_from_scheme: true,
-        scheme_topics: timetableData.selected_topics || [],
-        scheme_subtopics: timetableData.selected_subtopics || []
-      }
-      const response = await fetch('http://localhost:8000/api/timetables', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: parseInt(userGoogleId) || 1,
-          ...enhancedData
-        })
-      })
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      return await response.json()
-    } catch (error) {
-      throw error
-    }
-  },
-  async updateTimetableContent(timetableId: string, updates: any, userGoogleId: string): Promise<any> {
-    try {
-      const response = await fetch(`http://localhost:8000/api/timetables/${timetableId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: parseInt(userGoogleId) || 1,
-          ...updates
-        })
-      })
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      return await response.json()
-    } catch (error) {
-      throw error
-    }
-  },
-  async getTimetablesByScheme(schemeId: number, userGoogleId: string): Promise<any[]> {
-    try {
-      const response = await fetch(`http://localhost:8000/api/timetables?scheme_id=${schemeId}&user_id=${userGoogleId}`)
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      const result = await response.json()
-      return result.data || []
-    } catch (error) {
-      return []
-    }
-  }
-}
-
 export const sessionHelpers = {
   getUserIdFromSession(session: any): string {
     if (!session?.user) return '1'
@@ -467,17 +404,6 @@ export const contentValidators = {
           })
         }
       })
-    }
-    return { isValid: errors.length === 0, errors }
-  },
-  validateTimetableSlot(slot: any): { isValid: boolean; errors: string[] } {
-    const errors: string[] = []
-    if (!slot.day) errors.push('Day is required')
-    if (!slot.timeSlot) errors.push('Time slot is required')
-    if (!slot.subject) errors.push('Subject is required')
-    const validDays = ['MON', 'TUE', 'WED', 'THU', 'FRI']
-    if (slot.day && !validDays.includes(slot.day)) {
-      errors.push('Invalid day format')
     }
     return { isValid: errors.length === 0, errors }
   }
