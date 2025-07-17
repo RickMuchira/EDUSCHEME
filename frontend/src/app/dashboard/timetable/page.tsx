@@ -2,6 +2,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -22,7 +23,8 @@ import {
   Info,
   AlertTriangle,
   Database,
-  Play
+  Play,
+  ArrowRight
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
@@ -39,6 +41,7 @@ import { useSession } from 'next-auth/react'
 
 export default function TimetablePage() {
   const { data: session } = useSession()
+  const router = useRouter()
   const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
   const [currentSubject, setCurrentSubject] = useState<any>(null)
   const [availableTopics, setAvailableTopics] = useState<any[]>([])
@@ -49,6 +52,7 @@ export default function TimetablePage() {
   const [showInstructions, setShowInstructions] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
   
   const {
     timetableData,
@@ -61,10 +65,8 @@ export default function TimetablePage() {
     timetableId,
     addSlot,
     removeSlot,
-    setCurrentSubjectState,
     setSelectedTopics,
     setSelectedSubtopics,
-    saveState,
     loadState,
     canUndo,
     canRedo,
@@ -265,19 +267,62 @@ export default function TimetablePage() {
     }
   }, [selectedSlots, removeSlot, addSlot, currentSubject, selectedTopicIds, selectedSubtopicIds, availableTopics, availableSubtopics])
 
-  const handleSaveAndContinue = () => {
-    // Save current state
-    saveState()
-    
-    // Navigate to next step or show success message
-    console.log('✅ Timetable saved successfully!')
-    alert('Timetable saved successfully! You can continue building or export your schedule.')
+  const handleSaveAndContinue = async () => {
+    try {
+      setIsSaving(true)
+      
+      // Check if there's content to save
+      if (selectedSlots.length === 0) {
+        alert('Please add some time slots to your timetable before saving.')
+        return
+      }
+
+      if (!currentSubject) {
+        alert('Please select a subject before saving.')
+        return
+      }
+
+      console.log('💾 Saving timetable to database...')
+      
+      // The timetable data is auto-saved by the useTimetableState hook
+      // which already handles database persistence
+      
+      // Wait a moment for any pending auto-save to complete
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      
+      console.log('✅ Timetable saved successfully!')
+      console.log('📊 Final timetable data:', {
+        subject: currentSubject.name,
+        topicsSelected: selectedTopicIds.length,
+        subtopicsSelected: selectedSubtopicIds.length,
+        slotsScheduled: selectedSlots.length,
+        timetableId: timetableId
+      })
+      
+      // Navigate to scheme generation page
+      router.push('/dashboard/scheme-gen')
+      
+    } catch (error) {
+      console.error('❌ Error saving timetable:', error)
+      alert('Error saving timetable. Please try again.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleExportTimetable = () => {
     // Export functionality
     console.log('📄 Exporting timetable...')
     alert('Export functionality coming soon!')
+  }
+
+  const handleResetTimetable = () => {
+    if (confirm('Are you sure you want to reset your timetable? This action cannot be undone.')) {
+      reset()
+      setSelectedTopicIds([])
+      setSelectedSubtopicIds([])
+      console.log('🔄 Timetable reset successfully')
+    }
   }
 
   return (
@@ -364,10 +409,10 @@ export default function TimetablePage() {
           
           {/* Status Badge and Controls */}
           <div className="flex items-center space-x-3">
-            {isAutoSaving ? (
+            {isAutoSaving || isSaving ? (
               <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 animate-pulse">
                 <Save className="h-3 w-3 mr-1" />
-                Saving...
+                {isSaving ? 'Saving...' : 'Auto-saving...'}
               </Badge>
             ) : (
               <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
@@ -391,10 +436,19 @@ export default function TimetablePage() {
               size="sm"
               onClick={handleSaveAndContinue}
               className="bg-green-600 hover:bg-green-700"
-              disabled={selectedSlots.length === 0}
+              disabled={selectedSlots.length === 0 || isSaving}
             >
-              <Save className="h-4 w-4 mr-2" />
-              Save & Continue
+              {isSaving ? (
+                <>
+                  <Save className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <ArrowRight className="h-4 w-4 mr-2" />
+                  Save & Continue
+                </>
+              )}
             </Button>
           </div>
         </div>
@@ -488,7 +542,7 @@ export default function TimetablePage() {
           <div className="xl:col-span-1">
             <AnalysisPanel 
               analytics={analytics} 
-              isAutoSaving={isAutoSaving}
+              isAutoSaving={isAutoSaving || isSaving}
               lastSaveTime={lastSaveTime}
             />
           </div>
@@ -506,7 +560,7 @@ export default function TimetablePage() {
         {/* Action Buttons */}
         {selectedSlots.length > 0 && (
           <div className="flex justify-center space-x-4 pt-6">
-            <Button variant="outline" onClick={() => reset()}>
+            <Button variant="outline" onClick={handleResetTimetable}>
               <RotateCcw className="h-4 w-4 mr-2" />
               Reset Timetable
             </Button>
@@ -524,9 +578,19 @@ export default function TimetablePage() {
             <Button 
               onClick={handleSaveAndContinue}
               className="bg-blue-600 hover:bg-blue-700"
+              disabled={isSaving}
             >
-              <Play className="h-4 w-4 mr-2" />
-              Continue to Next Step
+              {isSaving ? (
+                <>
+                  <Save className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <ArrowRight className="h-4 w-4 mr-2" />
+                  Continue to Scheme Generation
+                </>
+              )}
             </Button>
           </div>
         )}
