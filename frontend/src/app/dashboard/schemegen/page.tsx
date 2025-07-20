@@ -41,7 +41,7 @@ import {
   ChevronDown,
   ChevronRight
 } from 'lucide-react'
-import { apiClient } from '@/lib/api-client'
+import apiClient from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 
 interface SchemeWeek {
@@ -89,6 +89,7 @@ export default function SchemeGeneratorPage() {
   
   // State Management
   const [context, setContext] = useState<SchemeContext | null>(null)
+  const [isLoadingContext, setIsLoadingContext] = useState(true)
   const [generationConfig, setGenerationConfig] = useState<GenerationConfig>({
     model: 'llama3-8b-8192',
     style: 'detailed',
@@ -110,37 +111,82 @@ export default function SchemeGeneratorPage() {
   useEffect(() => {
     const loadContext = async () => {
       try {
-        const contextParam = searchParams.get('context')
-        if (contextParam) {
-          const parsedContext = JSON.parse(decodeURIComponent(contextParam))
-          
-          // Fetch additional context from API
-          const userGoogleId = session?.user?.email
-          if (userGoogleId && parsedContext.schemeId) {
-            const schemeResponse = await apiClient.get(`/api/schemes/${parsedContext.schemeId}`, {
-              user_google_id: userGoogleId
-            })
-            
-            if (schemeResponse.success) {
-              const fullContext: SchemeContext = {
-                ...parsedContext,
-                school_name: schemeResponse.data.school_name,
-                subject_name: schemeResponse.data.subject_name,
-                form_grade: schemeResponse.data.form_grade_name,
-                term: schemeResponse.data.term_name,
-                academic_year: new Date().getFullYear().toString(),
-                totalWeeks: 13, // Default term length
-                totalLessons: parsedContext.lessonSlots?.length || 0
-              }
-              setContext(fullContext)
-            }
-          }
-        } else {
+        const schemeId = searchParams.get('schemeId')
+        if (!schemeId) {
+          setError('No scheme ID found. Please start from the timetable page.')
+          return
+        }
+
+        // Load context data from localStorage
+        const contextData = localStorage.getItem('schemeGenerationContext')
+        if (!contextData) {
           setError('No context data found. Please start from the timetable page.')
+          return
+        }
+        
+        let parsedContext
+        try {
+          parsedContext = JSON.parse(contextData)
+        } catch (parseError) {
+          console.error('Error parsing context data:', parseError)
+          setError('Invalid context data. Please start from the timetable page.')
+          return
+        }
+        
+        // Fetch additional context from API
+        const userGoogleId = session?.user?.email
+        if (!userGoogleId) {
+          setError('User session not found. Please log in again.')
+          return
+        }
+
+        try {
+          const schemeResponse = await apiClient.get(`/api/schemes/${schemeId}`, {
+            user_google_id: userGoogleId
+          })
+          
+          if (schemeResponse.success && schemeResponse.data) {
+            const fullContext: SchemeContext = {
+              ...parsedContext,
+              schemeId: schemeId,
+              school_name: schemeResponse.data.school_name || 'School Name',
+              subject_name: schemeResponse.data.subject_name || 'Subject',
+              form_grade: schemeResponse.data.form_grade_name || 'Form 1',
+              term: schemeResponse.data.term_name || 'Term 1',
+              academic_year: new Date().getFullYear().toString(),
+              totalWeeks: 13, // Default term length
+              totalLessons: parsedContext.lessonSlots?.length || 0
+            }
+            setContext(fullContext)
+            
+            // Clean up localStorage after loading
+            localStorage.removeItem('schemeGenerationContext')
+          } else {
+            console.error('Scheme response error:', schemeResponse)
+            setError('Failed to load scheme data. Please try again.')
+          }
+        } catch (apiError) {
+          console.error('API error:', apiError)
+          // Fallback to basic context if API fails
+          const fallbackContext: SchemeContext = {
+            ...parsedContext,
+            schemeId: schemeId,
+            school_name: 'School Name',
+            subject_name: 'Subject',
+            form_grade: 'Form 1',
+            term: 'Term 1',
+            academic_year: new Date().getFullYear().toString(),
+            totalWeeks: 13,
+            totalLessons: parsedContext.lessonSlots?.length || 0
+          }
+          setContext(fallbackContext)
+          localStorage.removeItem('schemeGenerationContext')
         }
       } catch (error) {
         console.error('Error loading context:', error)
-        setError('Failed to load context data.')
+        setError('Failed to load context data. Please try again.')
+      } finally {
+        setIsLoadingContext(false)
       }
     }
     
@@ -300,6 +346,30 @@ export default function SchemeGeneratorPage() {
     setExpandedWeeks(newExpanded)
   }
 
+  if (isLoadingContext) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading Context</h2>
+          <p className="text-gray-600">Preparing scheme generation...</p>
+          {error && (
+            <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg max-w-md">
+              <p className="text-red-600">{error}</p>
+              <Button 
+                onClick={() => router.push('/dashboard/timetable')} 
+                className="mt-2"
+                variant="outline"
+              >
+                Back to Timetable
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   if (!context) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -369,6 +439,98 @@ export default function SchemeGeneratorPage() {
                 <div>
                   <p className="text-sm font-medium text-blue-900">Lessons</p>
                   <p className="text-sm text-blue-700">{context.totalLessons} lessons planned</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Curriculum Mapping Card */}
+        <Card className="border-l-4 border-l-green-500 bg-green-50">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Target className="h-5 w-5 text-green-600" />
+              <span>Curriculum Learning Progression</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {/* Topic Progression */}
+              <div>
+                <h4 className="font-semibold text-green-900 mb-2">Topic Learning Sequence</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {(context.selectedTopics || []).map((topic, index) => (
+                    <div key={topic?.id || index} className="bg-white rounded-lg p-3 border border-green-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-green-900">
+                          {index + 1}. {topic?.name || 'Unknown Topic'}
+                        </span>
+                        <Badge variant="outline" className="text-xs">
+                          {topic?.duration_weeks || 1} week{(topic?.duration_weeks || 1) !== 1 ? 's' : ''}
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-green-700">
+                        <p>Complexity: {(topic?.name || '').toLowerCase().includes('basic') ? 'Foundation' : 
+                                        (topic?.name || '').toLowerCase().includes('advanced') ? 'Advanced' : 'Intermediate'}</p>
+                        <p>Subtopics: {(context.selectedSubtopics || []).filter(st => st?.topic_id === topic?.id).length}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Learning Progression Analysis */}
+              <div>
+                <h4 className="font-semibold text-green-900 mb-2">Learning Progression Analysis</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-white rounded-lg p-3 border border-green-200">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                      <span className="text-sm font-medium text-green-900">Foundation Topics</span>
+                    </div>
+                    <p className="text-xs text-green-700">
+                      {(context.selectedTopics || []).filter(t => (t?.name || '').toLowerCase().includes('basic') || 
+                                                          (t?.name || '').toLowerCase().includes('introduction')).length} topics
+                    </p>
+                  </div>
+                  
+                  <div className="bg-white rounded-lg p-3 border border-green-200">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                      <span className="text-sm font-medium text-green-900">Intermediate Topics</span>
+                    </div>
+                    <p className="text-xs text-green-700">
+                      {(context.selectedTopics || []).filter(t => !(t?.name || '').toLowerCase().includes('basic') && 
+                                                          !(t?.name || '').toLowerCase().includes('introduction') &&
+                                                          !(t?.name || '').toLowerCase().includes('advanced')).length} topics
+                    </p>
+                  </div>
+                  
+                  <div className="bg-white rounded-lg p-3 border border-green-200">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                      <span className="text-sm font-medium text-green-900">Advanced Topics</span>
+                    </div>
+                    <p className="text-xs text-green-700">
+                      {(context.selectedTopics || []).filter(t => (t?.name || '').toLowerCase().includes('advanced')).length} topics
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cross-Curricular Connections */}
+              <div>
+                <h4 className="font-semibold text-green-900 mb-2">Cross-Curricular Connections</h4>
+                <div className="bg-white rounded-lg p-3 border border-green-200">
+                  <p className="text-sm text-green-700">
+                    The AI will identify and leverage connections between topics to create a cohesive learning experience.
+                    {(context.selectedTopics || []).length > 1 && (
+                      <span className="block mt-1">
+                        <strong>Key Connections:</strong> {(context.selectedTopics || []).length} topics will be integrated 
+                        with {(context.selectedSubtopics || []).length} subtopics for comprehensive understanding.
+                      </span>
+                    )}
+                  </p>
                 </div>
               </div>
             </div>

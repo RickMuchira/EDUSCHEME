@@ -957,6 +957,7 @@ export default function TimetablePage() {
                 <Button 
                   onClick={() => {
                     if (!currentScheme || !currentScheme.id) return;
+                    // Store full context data in localStorage to avoid URL size limits
                     const contextData = {
                       timetableId: timetableId,
                       schemeId: currentScheme.id,
@@ -964,7 +965,10 @@ export default function TimetablePage() {
                       selectedSubtopics: availableSubtopics.filter(s => selectedSubtopicIds.includes(s.id)),
                       lessonSlots: selectedSlots
                     }
-                    router.push(`/dashboard/schemegen?context=${encodeURIComponent(JSON.stringify(contextData))}`)
+                    localStorage.setItem('schemeGenerationContext', JSON.stringify(contextData))
+                    
+                    // Pass only essential data in URL
+                    router.push(`/dashboard/schemegen?schemeId=${currentScheme.id}`)
                   }}
                   className="bg-green-600 hover:bg-green-700"
                 >

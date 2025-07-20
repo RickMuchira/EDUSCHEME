@@ -10,7 +10,9 @@ import time
 import logging
 import os
 from database import create_tables, get_db
-import crud, models, schemas
+import schemas
+import crud
+import models
 from fastapi.exception_handlers import RequestValidationError
 from fastapi.exceptions import RequestValidationError
 from fastapi import Request
@@ -20,7 +22,6 @@ from fastapi import APIRouter, Query, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime
 import logging
-from . import schemas, crud
 from services.ai_service import GroqAIService
 from database import get_db
 
