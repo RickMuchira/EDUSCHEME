@@ -21,7 +21,8 @@ import {
   Home,
   Plus,
   User,
-  LogOut
+  LogOut,
+  Zap
 } from 'lucide-react'
 import SignOutButton from '@/components/auth/SignOutButton'
 
@@ -69,6 +70,14 @@ const navigation = [
     icon: BarChart3,
     description: 'Track your progress',
     color: 'bg-pink-500'
+  },
+  {
+    id: 'schemegen',
+    name: 'AI Scheme Generator',
+    href: '/dashboard/schemegen',
+    icon: Zap,
+    description: 'Generate schemes with AI',
+    color: 'bg-purple-500'
   },
   {
     id: 'settings',

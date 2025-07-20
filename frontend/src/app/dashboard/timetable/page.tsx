@@ -38,7 +38,8 @@ import {
   FolderOpen,
   Play,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Zap
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
@@ -81,6 +82,7 @@ export default function TimetablePage() {
   const [termName, setTermName] = useState<string>('')
   const [showInstructions, setShowInstructions] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showGenerationOption, setShowGenerationOption] = useState(false)
   
   // Timetable state hook
   const {
@@ -293,6 +295,10 @@ export default function TimetablePage() {
           localStorage.setItem('currentTimetableId', response.data.id)
         }
         setTimeout(() => setSaveMessage(''), 5000)
+        // Show scheme generation option after 1.5 seconds
+        setTimeout(() => {
+          setShowGenerationOption(true)
+        }, 1500)
       } else {
         throw new Error(response.message || 'Failed to save timetable')
       }
@@ -347,7 +353,8 @@ export default function TimetablePage() {
   // Main data loading effect
   useEffect(() => {
     const loadSchemeAndInitialize = async () => {
-      if (!session?.user?.id) return
+      const userGoogleId = getUserIdFromSession(session)
+      if (!userGoogleId) return
       
       setIsLoadingScheme(true)
       setIsDataLoading(true)
@@ -358,7 +365,7 @@ export default function TimetablePage() {
         const savedFormData = localStorage.getItem('schemeFormData')
         
         if (savedSchemeId) {
-          const userGoogleId = session.user.id
+          // userGoogleId already set above
           
           console.log('Loading scheme with ID:', savedSchemeId)
           
@@ -427,7 +434,7 @@ export default function TimetablePage() {
     }
 
     loadSchemeAndInitialize()
-  }, [session?.user?.id, router, currentScheme?.id])
+  }, [getUserIdFromSession(session), router, currentScheme?.id])
 
   // Topic selection handlers
   const handleTopicSelect = useCallback(async (topicId: number, checked: boolean) => {
@@ -936,6 +943,38 @@ export default function TimetablePage() {
             </div>
           </CardContent>
         </Card>
+        {showGenerationOption && (
+          <Card className="border-l-4 border-l-green-500 bg-green-50 mt-4">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <Zap className="h-8 w-8 text-green-600" />
+                  <div>
+                    <h3 className="font-semibold text-green-900">Ready to Generate Scheme!</h3>
+                    <p className="text-sm text-green-700">Your timetable is saved. Generate a professional scheme of work using AI.</p>
+                  </div>
+                </div>
+                <Button 
+                  onClick={() => {
+                    if (!currentScheme || !currentScheme.id) return;
+                    const contextData = {
+                      timetableId: timetableId,
+                      schemeId: currentScheme.id,
+                      selectedTopics: availableTopics.filter(t => selectedTopicIds.includes(t.id)),
+                      selectedSubtopics: availableSubtopics.filter(s => selectedSubtopicIds.includes(s.id)),
+                      lessonSlots: selectedSlots
+                    }
+                    router.push(`/dashboard/schemegen?context=${encodeURIComponent(JSON.stringify(contextData))}`)
+                  }}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  Generate Scheme
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )

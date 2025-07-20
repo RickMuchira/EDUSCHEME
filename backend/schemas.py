@@ -81,6 +81,12 @@ class SchemeOfWorkResponse(SchemeOfWorkBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
     due_date: Optional[datetime] = None
+    generated_content: Optional[Dict[str, Any]] = None
+    ai_model_used: Optional[str] = None
+    generation_metadata: Optional[Dict[str, Any]] = None
+    generation_date: Optional[datetime] = None
+    generation_version: Optional[int] = 1
+    is_ai_generated: Optional[bool] = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -450,3 +456,38 @@ class PaginatedResponse(BaseSchema):
     limit: int
     has_next: bool
     has_previous: bool
+
+class SchemeGenerationConfig(BaseModel):
+    model: str = "llama3-8b-8192"
+    style: str = "detailed"
+    curriculum_standard: str = "KICD"
+    language_complexity: str = "intermediate"
+
+class SchemeGenerationRequest(BaseModel):
+    context: Dict[str, Any]
+    config: SchemeGenerationConfig
+    user_google_id: str
+
+class SchemeLesson(BaseModel):
+    lesson_number: int
+    topic_subtopic: str
+    specific_objectives: List[str]
+    teaching_learning_activities: List[str]
+    materials_resources: List[str]
+    references: str
+    remarks: str = ""
+
+class SchemeWeek(BaseModel):
+    week_number: int
+    theme: Optional[str] = None
+    lessons: List[SchemeLesson]
+
+class GeneratedSchemeContent(BaseModel):
+    scheme_header: Optional[Dict[str, Any]] = None
+    weeks: List[SchemeWeek]
+    metadata: Optional[Dict[str, Any]] = None
+
+class SchemeContentSaveRequest(BaseModel):
+    generated_content: GeneratedSchemeContent
+    ai_model_used: str
+    user_google_id: str

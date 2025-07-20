@@ -55,6 +55,14 @@ class SchemeOfWork(Base):
     content = Column(JSONType)  # Store scheme content as JSON
     scheme_metadata = Column(JSONType)  # Additional metadata - RENAMED from 'metadata'
     
+    # AI generation fields - ADD THESE IF NOT PRESENT
+    generated_content = Column(JSONType, nullable=True)
+    ai_model_used = Column(String(100), nullable=True)
+    generation_metadata = Column(JSONType, nullable=True)
+    generation_date = Column(DateTime, nullable=True)
+    generation_version = Column(Integer, default=1)
+    is_ai_generated = Column(Boolean, default=False)
+    
     # Foreign Keys
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     school_level_id = Column(Integer, ForeignKey("school_levels.id"), nullable=False)
@@ -77,7 +85,7 @@ class SchemeOfWork(Base):
     timetables = relationship("Timetable", back_populates="scheme")
 
     def to_dict(self):
-        """Convert SQLAlchemy model to dictionary for serialization"""
+        """Update your existing to_dict method to include AI fields"""
         return {
             "id": self.id,
             "school_name": self.school_name,
@@ -94,6 +102,12 @@ class SchemeOfWork(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "due_date": self.due_date.isoformat() if self.due_date else None,
+            "generated_content": self.generated_content,
+            "ai_model_used": self.ai_model_used,
+            "generation_metadata": self.generation_metadata,
+            "generation_date": self.generation_date.isoformat() if self.generation_date else None,
+            "generation_version": self.generation_version,
+            "is_ai_generated": self.is_ai_generated,
         }
 
 # Lesson Plan model

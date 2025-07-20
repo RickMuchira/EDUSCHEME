@@ -16,6 +16,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi import Request
 import uuid
 from datetime import datetime
+from fastapi import APIRouter, Query, Depends, HTTPException
+from sqlalchemy.orm import Session
+from datetime import datetime
+import logging
+from . import schemas, crud
+from services.ai_service import GroqAIService
+from database import get_db
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -1610,6 +1617,111 @@ async def update_timetable(
         return schemas.ResponseWrapper(
             success=False,
             message=f"Failed to update timetable: {str(e)}",
+            data=None
+        )
+
+@app.post("/api/schemes/generate", response_model=schemas.ResponseWrapper, tags=["Schemes"])
+async def generate_scheme_of_work(
+    generation_data: dict,
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Generate scheme of work using AI and timetable data"""
+    try:
+        user = crud.user.get_by_google_id(db, google_id=user_google_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        context = generation_data["context"]
+        # Enrich timetable data if present
+        if "timetable_data" in context:
+            timetable_data = context["timetable_data"]
+            enriched_timetable_data = {
+                **timetable_data,
+                "slots": [
+                    {
+                        **slot,
+                        "is_evening": slot.get("is_evening", False)
+                    }
+                    for slot in slots
+                ]
+            }
+            context["timetable_data"] = enriched_timetable_data
+        ai_service = GroqAIService()
+        result = ai_service.generate_scheme_of_work(
+            context=context,
+            config=generation_data["config"]
+        )
+        return schemas.ResponseWrapper(
+            success=True,
+            message="Scheme generated successfully with timetable data",
+            data=result
+        )
+    except Exception as e:
+        logger.error(f"Enhanced scheme generation error: {str(e)}")
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"Generation failed: {str(e)}",
+            data=None
+        )
+
+@app.put("/api/schemes/{scheme_id}/content", response_model=schemas.ResponseWrapper, tags=["Schemes"])
+async def save_generated_scheme_content(
+    scheme_id: int,
+    content_data: dict,
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Save generated scheme content to database"""
+    try:
+        user = crud.user.get_by_google_id(db, google_id=user_google_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        scheme = crud.scheme.get(db=db, id=scheme_id)
+        if not scheme or scheme.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Scheme not found")
+        scheme.generated_content = content_data.get("generated_content")
+        scheme.ai_model_used = content_data.get("ai_model_used", "groq-llama")
+        scheme.generation_date = datetime.utcnow()
+        scheme.is_ai_generated = True
+        scheme.generation_version = getattr(scheme, 'generation_version', 0) + 1
+        scheme.status = "completed"
+        db.commit()
+        return schemas.ResponseWrapper(
+            success=True,
+            message="Scheme content saved successfully",
+            data={"scheme_id": scheme_id, "version": scheme.generation_version}
+        )
+    except Exception as e:
+        logger.error(f"Save scheme content error: {str(e)}")
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"Save failed: {str(e)}",
+            data=None
+        )
+
+@app.post("/api/schemes/export", tags=["Schemes"])
+async def export_scheme(
+    export_data: dict,
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Export scheme to PDF or Word format"""
+    try:
+        user = crud.user.get_by_google_id(db, google_id=user_google_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        # TODO: Implement export functionality
+        # This would use libraries like reportlab for PDF or python-docx for Word
+        return schemas.ResponseWrapper(
+            success=False,
+            message="Export functionality coming soon",
+            data=None
+        )
+    except Exception as e:
+        logger.error(f"Export error: {str(e)}")
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"Export failed: {str(e)}",
             data=None
         )
 
