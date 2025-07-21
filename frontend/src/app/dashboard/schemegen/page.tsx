@@ -1,52 +1,15 @@
-"use client"
+'use client'
 
-import React, { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { 
-  Card, 
-  CardContent, 
-  CardHeader, 
-  CardTitle 
-} from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
-import { 
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { 
-  Loader2, 
-  Zap, 
-  Download, 
-  Edit3, 
-  Save, 
-  FileText, 
-  Settings, 
-  CheckCircle2,
-  AlertTriangle,
-  RefreshCw,
-  Eye,
-  Calendar,
-  BookOpen,
-  GraduationCap,
-  Building2,
-  Clock,
-  Users,
-  Target,
-  ChevronDown,
-  ChevronRight
-} from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Loader2, AlertCircle, ArrowLeft } from 'lucide-react'
 import apiClient from '@/lib/apiClient'
-import { cn } from '@/lib/utils'
 
 interface SchemeWeek {
   week_number: number
-  theme?: string
   lessons: SchemeLesson[]
 }
 
@@ -85,7 +48,7 @@ interface SchemeContext {
 export default function SchemeGeneratorPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { data: session } = useSession()
+  const { data: session, status: sessionStatus } = useSession()
   
   // State Management
   const [context, setContext] = useState<SchemeContext | null>(null)
@@ -107,151 +70,298 @@ export default function SchemeGeneratorPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState('')
 
-  // Load context data on mount
+  // Enhanced context loading with better error recovery
   useEffect(() => {
     const loadContext = async () => {
+      console.log('Starting context load...')
+      console.log('Session status:', sessionStatus)
+      console.log('Session data:', session)
+
+      // Wait for session to be ready
+      if (sessionStatus === 'loading') {
+        console.log('Session still loading, waiting...')
+        return
+      }
+      
+      // Auto-hide status after success
+      setTimeout(() => {
+        setGenerationStatus('')
+        setGenerationProgress(0)
+      }, 2000)
+
+      if (sessionStatus === 'unauthenticated') {
+        console.log('User not authenticated, redirecting to login')
+        router.push('/login')
+        return
+      }
+
       try {
         const schemeId = searchParams.get('schemeId')
+        console.log('SchemeId from URL:', schemeId)
+        
         if (!schemeId) {
+          console.log('No scheme ID found in URL')
           setError('No scheme ID found. Please start from the timetable page.')
+          setIsLoadingContext(false)
           return
         }
 
-        // Load context data from localStorage
-        const contextData = localStorage.getItem('schemeGenerationContext')
-        if (!contextData) {
-          setError('No context data found. Please start from the timetable page.')
-          return
-        }
-        
-        let parsedContext
-        try {
-          parsedContext = JSON.parse(contextData)
-        } catch (parseError) {
-          console.error('Error parsing context data:', parseError)
-          setError('Invalid context data. Please start from the timetable page.')
-          return
-        }
-        
-        // Fetch additional context from API
         const userGoogleId = session?.user?.email
+        console.log('User Google ID:', userGoogleId)
+        
         if (!userGoogleId) {
+          console.log('No user ID found in session')
           setError('User session not found. Please log in again.')
+          setIsLoadingContext(false)
           return
         }
 
+        // Try to load context data from localStorage first
+        let contextData = localStorage.getItem('schemeGenerationContext')
+        let parsedContext = null
+
+        if (contextData) {
+          try {
+            parsedContext = JSON.parse(contextData)
+            console.log('Found context data in localStorage:', parsedContext)
+          } catch (parseError) {
+            console.error('Error parsing localStorage context data:', parseError)
+            // Don't return here, we'll try to create a basic context from the API
+          }
+        } else {
+          console.log('No context data found in localStorage')
+        }
+
+        // Always try to fetch scheme data from API for the latest info
+        console.log('Fetching scheme data from API...')
         try {
           const schemeResponse = await apiClient.get(`/api/schemes/${schemeId}`, {
             user_google_id: userGoogleId
           })
           
-          if (schemeResponse.success && schemeResponse.data) {
-            const fullContext: SchemeContext = {
-              ...parsedContext,
-              schemeId: schemeId,
-              school_name: schemeResponse.data.school_name || 'School Name',
-              subject_name: schemeResponse.data.subject_name || 'Subject',
-              form_grade: schemeResponse.data.form_grade_name || 'Form 1',
-              term: schemeResponse.data.term_name || 'Term 1',
-              academic_year: new Date().getFullYear().toString(),
-              totalWeeks: 13, // Default term length
-              totalLessons: parsedContext.lessonSlots?.length || 0
+          console.log('🔍 Scheme API response:', schemeResponse)
+          console.log('🔍 Response type:', typeof schemeResponse)
+          console.log('🔍 Response keys:', Object.keys(schemeResponse || {}))
+          console.log('🔍 Success field:', schemeResponse?.success)
+          console.log('🔍 Message field:', schemeResponse?.message)
+          
+          // Handle different response formats
+          let scheme = null
+          
+          // Check if it's a ResponseWrapper format
+          if (schemeResponse && typeof schemeResponse === 'object') {
+            if (schemeResponse.success === true && schemeResponse.data) {
+              console.log('✅ Success response with data')
+              scheme = schemeResponse.data
+            } else if (schemeResponse.success === false) {
+              console.log('❌ API returned success: false')
+              console.log('❌ Error message:', schemeResponse.message)
+              console.log('❌ Full error response:', schemeResponse)
+              // Instead of throwing, use fallback context and set error
+              if (parsedContext) {
+                console.log('Using localStorage context as fallback')
+                const fallbackContext = {
+                  ...parsedContext,
+                  schemeId: schemeId,
+                  school_name: parsedContext.school_name || 'School Name',
+                  subject_name: parsedContext.subject_name || 'Subject',
+                  form_grade: parsedContext.form_grade || 'Form 1',
+                  term: parsedContext.term || 'Term 1',
+                  academic_year: new Date().getFullYear().toString(),
+                  totalWeeks: 13,
+                  totalLessons: parsedContext.lessonSlots?.length || 0
+                }
+                setContext(fallbackContext)
+                setError(`API error: ${schemeResponse.message || 'Failed to load scheme data'}. Using cached data.`)
+                if (contextData) localStorage.removeItem('schemeGenerationContext')
+              } else {
+                // Create minimal context to allow page to function
+                console.log('Creating minimal context for scheme ID:', schemeId)
+                const minimalContext = {
+                  timetableId: 'default',
+                  schemeId: schemeId,
+                  school_name: 'School Name',
+                  subject_name: 'Subject',
+                  form_grade: 'Form 1',
+                  term: 'Term 1',
+                  academic_year: new Date().getFullYear().toString(),
+                  selectedTopics: [],
+                  selectedSubtopics: [],
+                  lessonSlots: [],
+                  totalWeeks: 13,
+                  totalLessons: 0
+                }
+                setContext(minimalContext)
+                setError(`Could not load scheme data: ${schemeResponse.message || 'Unknown error'}. You can still generate a basic scheme.`)
+              }
+              return;
+            } else if (schemeResponse.id) {
+              console.log('✅ Direct scheme object response')
+              scheme = schemeResponse
+            } else {
+              console.warn('⚠️ Unexpected response format:', schemeResponse)
+              // Use minimal context for unknown format
+              const minimalContext = {
+                timetableId: 'default',
+                schemeId: schemeId,
+                school_name: 'School Name',
+                subject_name: 'Subject',
+                form_grade: 'Form 1',
+                term: 'Term 1',
+                academic_year: new Date().getFullYear().toString(),
+                selectedTopics: [],
+                selectedSubtopics: [],
+                lessonSlots: [],
+                totalWeeks: 13,
+                totalLessons: 0
+              }
+              setContext(minimalContext)
+              setError('Unexpected response format from API. You can still generate a basic scheme.')
+              return;
             }
+          } else {
+            console.log('❌ Invalid response type:', typeof schemeResponse)
+            throw new Error('Invalid response from API')
+          }
+          
+          if (scheme) {
+            // Create full context, merging localStorage data with API data
+            const fullContext: SchemeContext = {
+              timetableId: parsedContext?.timetableId || 'default',
+              schemeId: schemeId,
+              school_name: scheme.school_name || 'School Name',
+              subject_name: scheme.subject_name || 'Subject',
+              form_grade: scheme.form_grade_name || scheme.form_grade || 'Form 1',
+              term: scheme.term_name || scheme.term || 'Term 1',
+              academic_year: new Date().getFullYear().toString(),
+              selectedTopics: parsedContext?.selectedTopics || [],
+              selectedSubtopics: parsedContext?.selectedSubtopics || [],
+              lessonSlots: parsedContext?.lessonSlots || [],
+              totalWeeks: 13, // Default term length
+              totalLessons: parsedContext?.lessonSlots?.length || 0
+            }
+            
+            console.log('Setting context:', fullContext)
             setContext(fullContext)
             
-            // Clean up localStorage after loading
-            localStorage.removeItem('schemeGenerationContext')
+            // Clean up localStorage after successful loading
+            if (contextData) {
+              localStorage.removeItem('schemeGenerationContext')
+            }
           } else {
-            console.error('Scheme response error:', schemeResponse)
-            setError('Failed to load scheme data. Please try again.')
+            throw new Error('No scheme data received from API')
           }
-        } catch (apiError) {
+        } catch (apiError: any) {
           console.error('API error:', apiError)
-          // Fallback to basic context if API fails
-          const fallbackContext: SchemeContext = {
-            ...parsedContext,
-            schemeId: schemeId,
-            school_name: 'School Name',
-            subject_name: 'Subject',
-            form_grade: 'Form 1',
-            term: 'Term 1',
-            academic_year: new Date().getFullYear().toString(),
-            totalWeeks: 13,
-            totalLessons: parsedContext.lessonSlots?.length || 0
+          
+          // Don't throw error here - instead use fallback context
+          console.log('API failed, using fallback context with localStorage data or defaults')
+          
+          // If we have some context from localStorage, use it as fallback
+          if (parsedContext) {
+            console.log('Using localStorage context as fallback')
+            const fallbackContext: SchemeContext = {
+              ...parsedContext,
+              schemeId: schemeId,
+              school_name: parsedContext.school_name || 'School Name',
+              subject_name: parsedContext.subject_name || 'Subject',
+              form_grade: parsedContext.form_grade || 'Form 1',
+              term: parsedContext.term || 'Term 1',
+              academic_year: new Date().getFullYear().toString(),
+              totalWeeks: 13,
+              totalLessons: parsedContext.lessonSlots?.length || 0
+            }
+            setContext(fallbackContext)
+            localStorage.removeItem('schemeGenerationContext')
+            setError(`API connection issue: ${apiError.message}. Using cached data.`)
+          } else {
+            // Create minimal context to allow page to function
+            console.log('Creating minimal context for scheme ID:', schemeId)
+            const minimalContext: SchemeContext = {
+              timetableId: 'default',
+              schemeId: schemeId,
+              school_name: 'School Name',
+              subject_name: 'Subject',
+              form_grade: 'Form 1',
+              term: 'Term 1',
+              academic_year: new Date().getFullYear().toString(),
+              selectedTopics: [],
+              selectedSubtopics: [],
+              lessonSlots: [],
+              totalWeeks: 13,
+              totalLessons: 0
+            }
+            setContext(minimalContext)
+            setError(`Could not load scheme data: ${apiError.message}. You can still generate a basic scheme.`)
           }
-          setContext(fallbackContext)
-          localStorage.removeItem('schemeGenerationContext')
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error loading context:', error)
-        setError('Failed to load context data. Please try again.')
+        setError(`Failed to load context data: ${error.message}`)
       } finally {
         setIsLoadingContext(false)
       }
     }
-    
-    loadContext()
-  }, [searchParams, session])
 
-  // Generate scheme using AI
+    loadContext()
+  }, [searchParams, session, sessionStatus, router])
+
+  // Generate scheme function
   const generateScheme = async () => {
     if (!context || !session?.user?.email) return
-    
+
     setIsGenerating(true)
-    setGenerationProgress(0)
     setError('')
-    
+    setGenerationProgress(0)
+    setGenerationStatus('Starting generation...')
+
     try {
-      setGenerationStatus('Preparing data for AI generation...')
-      setGenerationProgress(10)
-      
-      // Fetch complete timetable data
-      const timetableResponse = await apiClient.get(`/api/timetables/by-scheme/${context.schemeId}`, {
-        user_google_id: session.user.email
-      })
-      
-      let timetableData = {}
-      if (timetableResponse.success && timetableResponse.data) {
-        timetableData = timetableResponse.data
-      }
-      
-      const generationData = {
-        context: {
-          ...context,
-          timetable_data: timetableData
+      setGenerationStatus('Generating scheme content...')
+      setGenerationProgress(50)
+
+
+      // Send a single payload object with context and generation_config keys
+      const response = await apiClient.post(
+        '/api/schemes/generate',
+        {
+          context,
+          generation_config: generationConfig
         },
-        config: generationConfig,
-        user_google_id: session.user.email
-      }
-      
-      setGenerationStatus('Sending to Groq AI model...')
-      setGenerationProgress(30)
-      
-      // Call the AI generation endpoint
-      const response = await apiClient.post('/api/schemes/generate', generationData)
-      
-      if (response.success) {
-        setGenerationStatus('Processing AI response...')
-        setGenerationProgress(70)
-        
-        // Simulate processing time for better UX
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        
-        setGenerationStatus('Finalizing scheme...')
-        setGenerationProgress(90)
-        
-        setGeneratedScheme(response.data.scheme_content.weeks)
-        setGenerationProgress(100)
-        setGenerationStatus('Generation complete!')
-        
-        // Auto-hide status after success
-        setTimeout(() => {
-          setGenerationStatus('')
-          setGenerationProgress(0)
-        }, 2000)
-        
+        {
+          user_google_id: session.user.email
+        }
+      )
+
+      console.log('🔍 Generation API response:', response)
+      console.log('🔍 Response type:', typeof response)
+      console.log('🔍 Response keys:', Object.keys(response || {}))
+      console.log('🔍 Success field:', response?.success)
+      console.log('🔍 Message field:', response?.message)
+
+      // Handle different response formats
+      if (response && typeof response === 'object') {
+        if (response.success === true && response.data) {
+          console.log('✅ Generation success with data')
+          setGeneratedScheme(response.data.weeks || [])
+          setGenerationStatus('Generation completed successfully!')
+          setGenerationProgress(100)
+        } else if (response.success === false) {
+          console.log('❌ Generation API returned success: false')
+          console.log('❌ Error message:', response.message)
+          console.log('❌ Full error response:', response)
+          throw new Error(response.message || 'Generation failed')
+        } else if (response.weeks) {
+          console.log('✅ Direct weeks data format')
+          setGeneratedScheme(response.weeks || [])
+          setGenerationStatus('Generation completed successfully!')
+          setGenerationProgress(100)
+        } else {
+          console.log('⚠️ Unexpected generation response format:', response)
+          throw new Error('Unexpected response format from generation API')
+        }
       } else {
-        throw new Error(response.message || 'Generation failed')
+        console.log('❌ Invalid generation response type:', typeof response)
+        throw new Error('Invalid response from generation API')
       }
     } catch (error: any) {
       console.error('Generation error:', error)
@@ -284,13 +394,25 @@ export default function SchemeGeneratorPage() {
       
       const response = await apiClient.put(`/api/schemes/${context.schemeId}/content`, saveData)
       
-      if (response.success) {
-        // Show success message and redirect
-        setTimeout(() => {
-          router.push('/dashboard/my-schemes')
-        }, 2000)
+      console.log('Save API response:', response)
+      
+      // Handle different response formats
+      if (response && typeof response === 'object') {
+        if (response.success === true) {
+          // Show success message and redirect
+          setTimeout(() => {
+            router.push('/dashboard/my-schemes')
+          }, 2000)
+        } else if (response.success === false) {
+          throw new Error(response.message || 'Save failed')
+        } else {
+          // Assume success if no explicit success field
+          setTimeout(() => {
+            router.push('/dashboard/my-schemes')
+          }, 2000)
+        }
       } else {
-        throw new Error(response.message || 'Save failed')
+        throw new Error('Invalid response from save API')
       }
     } catch (error: any) {
       console.error('Save error:', error)
@@ -300,525 +422,368 @@ export default function SchemeGeneratorPage() {
     }
   }
 
-  // Export functionality
-  const exportScheme = async (format: 'pdf' | 'docx') => {
-    if (!context || !generatedScheme.length) return
-    
-    try {
-      const exportData = {
-        scheme_id: context.schemeId,
-        format,
-        content: generatedScheme,
-        context
-      }
-      
-      const response = await fetch('/api/schemes/export', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(exportData)
-      })
-      
-      if (response.ok) {
-        const blob = await response.blob()
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.style.display = 'none'
-        a.href = url
-        a.download = `${context.subject_name}-${context.form_grade}-${context.term}-Scheme.${format}`
-        document.body.appendChild(a)
-        a.click()
-        window.URL.revokeObjectURL(url)
-      }
-    } catch (error) {
-      console.error('Export error:', error)
-    }
-  }
-
-  const toggleWeekExpansion = (weekNumber: number) => {
-    const newExpanded = new Set(expandedWeeks)
-    if (newExpanded.has(weekNumber)) {
-      newExpanded.delete(weekNumber)
-    } else {
-      newExpanded.add(weekNumber)
-    }
-    setExpandedWeeks(newExpanded)
-  }
-
-  if (isLoadingContext) {
+  // Show loading state
+  if (sessionStatus === 'loading' || isLoadingContext) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading Context</h2>
           <p className="text-gray-600">Preparing scheme generation...</p>
-          {error && (
-            <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg max-w-md">
-              <p className="text-red-600">{error}</p>
-              <Button 
-                onClick={() => router.push('/dashboard/timetable')} 
-                className="mt-2"
-                variant="outline"
-              >
-                Back to Timetable
-              </Button>
-            </div>
-          )}
         </div>
       </div>
     )
   }
 
-  if (!context) {
+  // Show error state with recovery options
+  if (error && !context) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading Context</h2>
-          <p className="text-gray-600">Preparing scheme generation...</p>
-          {error && (
-            <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg max-w-md">
-              <p className="text-red-600">{error}</p>
-              <Button 
-                onClick={() => router.push('/dashboard/timetable')} 
-                className="mt-2"
-                variant="outline"
-              >
-                Back to Timetable
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-emerald-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        
-        {/* Header */}
-        <div className="text-center space-y-4">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full mb-4">
-            <Zap className="w-8 h-8 text-white" />
+        <div className="text-center max-w-md">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading Error</h2>
+          <p className="text-red-600 mb-4">{error}</p>
+          <div className="space-y-2">
+            <Button 
+              onClick={() => router.push('/dashboard/timetable')} 
+              className="w-full"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Timetable
+            </Button>
+            <Button 
+              onClick={() => window.location.reload()} 
+              variant="outline"
+              className="w-full"
+            >
+              Retry Loading
+            </Button>
           </div>
-          <h1 className="text-4xl font-bold text-gray-900">AI Scheme Generator</h1>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Transform your timetable into a comprehensive scheme of work using advanced AI
+        </div>
+      </div>
+    )
+  }
+
+
+  // Check for incomplete context (missing real school/subject info)
+  const isIncompleteContext = !!(
+    context && (
+      !context.school_name || context.school_name === 'School Name' ||
+      !context.subject_name || context.subject_name === 'Subject' ||
+      !context.form_grade || context.form_grade === 'Form 1' ||
+      !context.term || context.term === 'Term 1'
+    )
+  )
+
+  // Main render with context available
+  return (
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Header */}
+        <div className="mb-8">
+          <Button
+            onClick={() => router.push('/dashboard/timetable')}
+            variant="outline"
+            className="mb-4"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Timetable
+          </Button>
+          
+          <h1 className="text-3xl font-bold text-gray-900">AI Scheme Generator</h1>
+          <p className="text-gray-600 mt-2">
+            Generate a comprehensive scheme of work using AI
           </p>
         </div>
 
-        {/* Context Card */}
-        <Card className="border-l-4 border-l-blue-500 bg-blue-50">
-          <CardContent className="pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="flex items-center space-x-2">
-                <Building2 className="h-5 w-5 text-blue-600" />
-                <div>
-                  <p className="text-sm font-medium text-blue-900">School</p>
-                  <p className="text-sm text-blue-700">{context.school_name}</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <BookOpen className="h-5 w-5 text-blue-600" />
-                <div>
-                  <p className="text-sm font-medium text-blue-900">Subject</p>
-                  <p className="text-sm text-blue-700">{context.subject_name}</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <GraduationCap className="h-5 w-5 text-blue-600" />
-                <div>
-                  <p className="text-sm font-medium text-blue-900">Form & Term</p>
-                  <p className="text-sm text-blue-700">{context.form_grade} - {context.term}</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Target className="h-5 w-5 text-blue-600" />
-                <div>
-                  <p className="text-sm font-medium text-blue-900">Lessons</p>
-                  <p className="text-sm text-blue-700">{context.totalLessons} lessons planned</p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Curriculum Mapping Card */}
-        <Card className="border-l-4 border-l-green-500 bg-green-50">
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Target className="h-5 w-5 text-green-600" />
-              <span>Curriculum Learning Progression</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {/* Topic Progression */}
-              <div>
-                <h4 className="font-semibold text-green-900 mb-2">Topic Learning Sequence</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {(context.selectedTopics || []).map((topic, index) => (
-                    <div key={topic?.id || index} className="bg-white rounded-lg p-3 border border-green-200">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-green-900">
-                          {index + 1}. {topic?.name || 'Unknown Topic'}
-                        </span>
-                        <Badge variant="outline" className="text-xs">
-                          {topic?.duration_weeks || 1} week{(topic?.duration_weeks || 1) !== 1 ? 's' : ''}
-                        </Badge>
-                      </div>
-                      <div className="text-xs text-green-700">
-                        <p>Complexity: {(topic?.name || '').toLowerCase().includes('basic') ? 'Foundation' : 
-                                        (topic?.name || '').toLowerCase().includes('advanced') ? 'Advanced' : 'Intermediate'}</p>
-                        <p>Subtopics: {(context.selectedSubtopics || []).filter(st => st?.topic_id === topic?.id).length}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Learning Progression Analysis */}
-              <div>
-                <h4 className="font-semibold text-green-900 mb-2">Learning Progression Analysis</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-white rounded-lg p-3 border border-green-200">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                      <span className="text-sm font-medium text-green-900">Foundation Topics</span>
-                    </div>
-                    <p className="text-xs text-green-700">
-                      {(context.selectedTopics || []).filter(t => (t?.name || '').toLowerCase().includes('basic') || 
-                                                          (t?.name || '').toLowerCase().includes('introduction')).length} topics
-                    </p>
-                  </div>
-                  
-                  <div className="bg-white rounded-lg p-3 border border-green-200">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-                      <span className="text-sm font-medium text-green-900">Intermediate Topics</span>
-                    </div>
-                    <p className="text-xs text-green-700">
-                      {(context.selectedTopics || []).filter(t => !(t?.name || '').toLowerCase().includes('basic') && 
-                                                          !(t?.name || '').toLowerCase().includes('introduction') &&
-                                                          !(t?.name || '').toLowerCase().includes('advanced')).length} topics
-                    </p>
-                  </div>
-                  
-                  <div className="bg-white rounded-lg p-3 border border-green-200">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                      <span className="text-sm font-medium text-green-900">Advanced Topics</span>
-                    </div>
-                    <p className="text-xs text-green-700">
-                      {(context.selectedTopics || []).filter(t => (t?.name || '').toLowerCase().includes('advanced')).length} topics
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Cross-Curricular Connections */}
-              <div>
-                <h4 className="font-semibold text-green-900 mb-2">Cross-Curricular Connections</h4>
-                <div className="bg-white rounded-lg p-3 border border-green-200">
-                  <p className="text-sm text-green-700">
-                    The AI will identify and leverage connections between topics to create a cohesive learning experience.
-                    {(context.selectedTopics || []).length > 1 && (
-                      <span className="block mt-1">
-                        <strong>Key Connections:</strong> {(context.selectedTopics || []).length} topics will be integrated 
-                        with {(context.selectedSubtopics || []).length} subtopics for comprehensive understanding.
-                      </span>
-                    )}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Configuration Panel */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Settings className="h-5 w-5" />
-              <span>AI Generation Configuration</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">AI Model</label>
-              <Select 
-                value={generationConfig.model} 
-                onValueChange={(value: any) => setGenerationConfig({...generationConfig, model: value})}
-                disabled={isGenerating}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="llama3-8b-8192">Llama 3 8B (Fast)</SelectItem>
-                  <SelectItem value="llama3-70b-8192">Llama 3 70B (Advanced)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Generation Style</label>
-              <Select 
-                value={generationConfig.style} 
-                onValueChange={(value: any) => setGenerationConfig({...generationConfig, style: value})}
-                disabled={isGenerating}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="detailed">Detailed & Comprehensive</SelectItem>
-                  <SelectItem value="concise">Concise & Focused</SelectItem>
-                  <SelectItem value="exam-focused">Exam-Focused</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Curriculum Standard</label>
-              <Select 
-                value={generationConfig.curriculum_standard} 
-                onValueChange={(value: any) => setGenerationConfig({...generationConfig, curriculum_standard: value})}
-                disabled={isGenerating}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="KICD">KICD (Kenya)</SelectItem>
-                  <SelectItem value="Cambridge">Cambridge</SelectItem>
-                  <SelectItem value="IB">International Baccalaureate</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Language Level</label>
-              <Select 
-                value={generationConfig.language_complexity} 
-                onValueChange={(value: any) => setGenerationConfig({...generationConfig, language_complexity: value})}
-                disabled={isGenerating}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="simple">Simple</SelectItem>
-                  <SelectItem value="intermediate">Intermediate</SelectItem>
-                  <SelectItem value="advanced">Advanced</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Generation Progress */}
-        {(isGenerating || generationStatus) && (
-          <Card className="border-l-4 border-l-purple-500 bg-purple-50">
-            <CardContent className="pt-6">
-              <div className="space-y-4">
-                <div className="flex items-center space-x-4">
-                  <Loader2 className={cn("h-6 w-6", isGenerating ? "animate-spin text-purple-600" : "text-green-600")} />
-                  <div className="flex-1">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-medium text-purple-900">{generationStatus}</span>
-                      <span className="text-sm text-purple-700">{generationProgress}%</span>
-                    </div>
-                    <Progress value={generationProgress} className="h-2" />
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Action Buttons */}
-        <div className="flex flex-wrap gap-4 justify-center">
-          {!generatedScheme.length ? (
-            <Button 
-              onClick={generateScheme} 
-              disabled={isGenerating}
-              size="lg"
-              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
-            >
-              <Zap className="h-5 w-5 mr-2" />
-              {isGenerating ? 'Generating...' : 'Generate Scheme of Work'}
-            </Button>
-          ) : (
-            <div className="flex gap-4">
-              <Button 
-                onClick={saveScheme} 
-                disabled={isSaving}
-                size="lg"
-                className="bg-green-600 hover:bg-green-700"
-              >
-                <Save className="h-4 w-4 mr-2" />
-                {isSaving ? 'Saving...' : 'Save Scheme'}
-              </Button>
-              
-              <Button 
-                onClick={() => exportScheme('pdf')} 
-                variant="outline"
-                size="lg"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Export PDF
-              </Button>
-              
-              <Button 
-                onClick={() => exportScheme('docx')} 
-                variant="outline"
-                size="lg"
-              >
-                <FileText className="h-4 w-4 mr-2" />
-                Export Word
-              </Button>
-              
-              <Button 
-                onClick={generateScheme} 
-                variant="outline"
-                size="lg"
-                disabled={isGenerating}
-              >
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Regenerate
-              </Button>
-            </div>
-          )}
-        </div>
-
-        {/* Error Display */}
-        {error && (
-          <Card className="border-l-4 border-l-red-500 bg-red-50">
-            <CardContent className="pt-6">
-              <div className="flex items-center space-x-2">
-                <AlertTriangle className="h-5 w-5 text-red-600" />
-                <p className="text-red-600">{error}</p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Generated Scheme Preview */}
-        {generatedScheme.length > 0 && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-gray-900">Generated Scheme of Work</h2>
-              <Badge variant="secondary" className="text-sm">
-                {generatedScheme.length} weeks • {generatedScheme.reduce((total, week) => total + week.lessons.length, 0)} lessons
-              </Badge>
-            </div>
-            
-            <div className="space-y-4">
-              {generatedScheme.map((week) => (
-                <Card key={week.week_number} className="overflow-hidden">
-                  <CardHeader 
-                    className="cursor-pointer hover:bg-gray-50"
-                    onClick={() => toggleWeekExpansion(week.week_number)}
+        {/* Error Alert with helpful actions */}
+        {(error || isIncompleteContext) && (
+          <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+            <div className="flex items-start">
+              <AlertCircle className="h-5 w-5 text-orange-500 mr-2 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-orange-700 mb-3">
+                  {isIncompleteContext
+                    ? 'The scheme context is incomplete. Please ensure you have selected a real school, subject, form/grade, and term. You may need to create a new scheme or return to the timetable.'
+                    : error}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={async () => {
+                      setError('')
+                      setIsLoadingContext(true)
+                      // Try to fetch available schemes
+                      try {
+                        const userGoogleId = session?.user?.email
+                        if (userGoogleId) {
+                          const response = await apiClient.get('/api/schemes', {
+                            user_google_id: userGoogleId
+                          })
+                          if (response.success && response.data && response.data.length > 0) {
+                            const firstScheme = response.data[0]
+                            router.push(`/dashboard/schemegen?schemeId=${firstScheme.id}`)
+                          } else {
+                            router.push('/dashboard/scheme-of-work')
+                          }
+                        }
+                      } catch (err) {
+                        router.push('/dashboard/scheme-of-work')
+                      } finally {
+                        setIsLoadingContext(false)
+                      }
+                    }}
+                    variant="outline"
+                    size="sm"
                   >
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center space-x-2">
-                        {expandedWeeks.has(week.week_number) ? (
-                          <ChevronDown className="h-5 w-5" />
-                        ) : (
-                          <ChevronRight className="h-5 w-5" />
-                        )}
-                        <Calendar className="h-5 w-5" />
-                        <span>Week {week.week_number}</span>
-                        {week.theme && <span className="text-gray-600">- {week.theme}</span>}
-                      </CardTitle>
-                      <Badge variant="outline">
-                        {week.lessons.length} lesson{week.lessons.length !== 1 ? 's' : ''}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  
-                  {expandedWeeks.has(week.week_number) && (
-                    <CardContent>
-                      <div className="space-y-6">
-                        {week.lessons.map((lesson) => (
-                          <div key={lesson.lesson_number} className="border rounded-lg p-4 bg-gray-50">
-                            <div className="grid grid-cols-1 lg:grid-cols-7 gap-4">
-                              <div className="lg:col-span-1">
-                                <div className="flex items-center space-x-2">
-                                  <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">
-                                    {lesson.lesson_number}
-                                  </div>
-                                  <span className="text-sm font-medium text-gray-600">Lesson {lesson.lesson_number}</span>
-                                </div>
-                              </div>
-                              
-                              <div className="lg:col-span-2">
-                                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Topic/Subtopic</label>
-                                <p className="text-sm font-medium text-gray-900 mt-1">{lesson.topic_subtopic}</p>
-                              </div>
-                              
-                              <div className="lg:col-span-2">
-                                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Specific Objectives</label>
-                                <ul className="text-sm text-gray-900 mt-1 space-y-1">
-                                  {lesson.specific_objectives.map((objective, idx) => (
-                                    <li key={idx} className="flex items-start space-x-2">
-                                      <span className="text-blue-600 mt-1">•</span>
-                                      <span>{objective}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                              
-                              <div className="lg:col-span-2">
-                                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Teaching/Learning Activities</label>
-                                <ul className="text-sm text-gray-900 mt-1 space-y-1">
-                                  {lesson.teaching_learning_activities.map((activity, idx) => (
-                                    <li key={idx} className="flex items-start space-x-2">
-                                      <span className="text-green-600 mt-1">•</span>
-                                      <span>{activity}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                              
-                              <div className="lg:col-span-7 grid grid-cols-1 lg:grid-cols-3 gap-4 pt-4 border-t border-gray-200">
-                                <div>
-                                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Materials/Resources</label>
-                                  <ul className="text-sm text-gray-900 mt-1 space-y-1">
-                                    {lesson.materials_resources.map((material, idx) => (
-                                      <li key={idx} className="flex items-start space-x-2">
-                                        <span className="text-purple-600 mt-1">•</span>
-                                        <span>{material}</span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                                
-                                <div>
-                                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">References</label>
-                                  <p className="text-sm text-gray-900 mt-1 font-medium">{lesson.references}</p>
-                                </div>
-                                
-                                <div>
-                                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Remarks</label>
-                                  <p className="text-sm text-gray-600 mt-1 italic">{lesson.remarks || 'No remarks'}</p>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  )}
-                </Card>
-              ))}
+                    Find Available Schemes
+                  </Button>
+                  <Button
+                    onClick={() => router.push('/dashboard/scheme-of-work')}
+                    variant="outline"
+                    size="sm"
+                  >
+                    Create New Scheme
+                  </Button>
+                  <Button
+                    onClick={() => router.push('/dashboard/timetable')}
+                    variant="outline"
+                    size="sm"
+                  >
+                    Back to Timetable
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
+        )}
+
+        {/* Debug Information Panel (only show in development) */}
+        {process.env.NODE_ENV === 'development' && (
+          <Card className="mb-6 bg-gray-50">
+            <CardHeader>
+              <CardTitle className="text-sm">Debug Information</CardTitle>
+            </CardHeader>
+            <CardContent className="text-xs">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <strong>URL Parameters:</strong>
+                  <br />
+                  Scheme ID: {searchParams.get('schemeId')}
+                  <br />
+                  Session Status: {sessionStatus}
+                  <br />
+                  User Email: {session?.user?.email || 'None'}
+                </div>
+                <div>
+                  <strong>Context Status:</strong>
+                  <br />
+                  Loading: {isLoadingContext.toString()}
+                  <br />
+                  Context Available: {context ? 'Yes' : 'No'}
+                  <br />
+                  Error: {error ? 'Yes' : 'No'}
+                </div>
+                <div>
+                  <strong>Quick Actions:</strong>
+                  <br />
+                  <button 
+                    onClick={() => console.log('Current context:', context)}
+                    className="text-blue-600 underline text-xs"
+                  >
+                    Log Context
+                  </button>
+                  <br />
+                  <button 
+                    onClick={() => localStorage.clear()}
+                    className="text-blue-600 underline text-xs"
+                  >
+                    Clear Storage
+                  </button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        {context && (
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle>Scheme Information</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <span className="font-medium">School:</span>
+                  <p className="text-gray-600">{context.school_name}</p>
+                </div>
+                <div>
+                  <span className="font-medium">Subject:</span>
+                  <p className="text-gray-600">{context.subject_name}</p>
+                </div>
+                <div>
+                  <span className="font-medium">Form/Grade:</span>
+                  <p className="text-gray-600">{context.form_grade}</p>
+                </div>
+                <div>
+                  <span className="font-medium">Term:</span>
+                  <p className="text-gray-600">{context.term}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Generation Controls */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Generation Settings</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">AI Model</label>
+                <select
+                  value={generationConfig.model}
+                  onChange={(e) => setGenerationConfig(prev => ({ 
+                    ...prev, 
+                    model: e.target.value as GenerationConfig['model']
+                  }))}
+                  className="w-full p-2 border rounded-md"
+                  disabled={isIncompleteContext}
+                >
+                  <option value="llama3-8b-8192">Llama 3 8B (Faster)</option>
+                  <option value="llama3-70b-8192">Llama 3 70B (More Detailed)</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-2">Style</label>
+                <select
+                  value={generationConfig.style}
+                  onChange={(e) => setGenerationConfig(prev => ({ 
+                    ...prev, 
+                    style: e.target.value as GenerationConfig['style']
+                  }))}
+                  className="w-full p-2 border rounded-md"
+                  disabled={isIncompleteContext}
+                >
+                  <option value="detailed">Detailed</option>
+                  <option value="concise">Concise</option>
+                  <option value="exam-focused">Exam Focused</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-2">Curriculum</label>
+                <select
+                  value={generationConfig.curriculum_standard}
+                  onChange={(e) => setGenerationConfig(prev => ({ 
+                    ...prev, 
+                    curriculum_standard: e.target.value as GenerationConfig['curriculum_standard']
+                  }))}
+                  className="w-full p-2 border rounded-md"
+                  disabled={isIncompleteContext}
+                >
+                  <option value="KICD">KICD</option>
+                  <option value="Cambridge">Cambridge</option>
+                  <option value="IB">IB</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-2">Language</label>
+                <select
+                  value={generationConfig.language_complexity}
+                  onChange={(e) => setGenerationConfig(prev => ({ 
+                    ...prev, 
+                    language_complexity: e.target.value as GenerationConfig['language_complexity']
+                  }))}
+                  className="w-full p-2 border rounded-md"
+                  disabled={isIncompleteContext}
+                >
+                  <option value="simple">Simple</option>
+                  <option value="intermediate">Intermediate</option>
+                  <option value="advanced">Advanced</option>
+                </select>
+              </div>
+            </div>
+            
+            <Button 
+              onClick={generateScheme}
+              disabled={isGenerating || !context || isIncompleteContext}
+              className="w-full bg-blue-600 hover:bg-blue-700"
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                'Generate Scheme'
+              )}
+            </Button>
+            
+            {/* Generation Progress */}
+            {(isGenerating || generationStatus) && (
+              <div className="mt-4">
+                <div className="flex justify-between text-sm text-gray-600 mb-1">
+                  <span>{generationStatus}</span>
+                  <span>{generationProgress}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${generationProgress}%` }}
+                  ></div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Generated Scheme Display */}
+        {generatedScheme.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Generated Scheme</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {generatedScheme.map((week) => (
+                  <div key={week.week_number} className="border rounded-lg p-4">
+                    <h3 className="font-bold text-lg mb-2">Week {week.week_number}</h3>
+                    <div className="space-y-2">
+                      {week.lessons.map((lesson) => (
+                        <div key={lesson.lesson_number} className="border-l-4 border-blue-500 pl-4">
+                          <h4 className="font-medium">Lesson {lesson.lesson_number}: {lesson.topic_subtopic}</h4>
+                          <div className="text-sm text-gray-600 mt-1">
+                            <strong>Objectives:</strong> {lesson.specific_objectives.join(', ')}
+                          </div>
+                          <div className="text-sm text-gray-600 mt-1">
+                            <strong>Activities:</strong> {lesson.teaching_learning_activities.join(', ')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              <div className="mt-6 flex gap-2">
+                <Button onClick={saveScheme} disabled={isSaving}>
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Scheme'
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         )}
       </div>
     </div>
   )
-} 
+}

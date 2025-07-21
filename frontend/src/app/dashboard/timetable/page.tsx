@@ -355,35 +355,50 @@ export default function TimetablePage() {
     const loadSchemeAndInitialize = async () => {
       const userGoogleId = getUserIdFromSession(session)
       if (!userGoogleId) return
-      
+
       setIsLoadingScheme(true)
       setIsDataLoading(true)
       setError(null)
-      
+
       try {
         const savedSchemeId = localStorage.getItem('currentSchemeId')
-        const savedFormData = localStorage.getItem('schemeFormData')
-        
         if (savedSchemeId) {
-          // userGoogleId already set above
-          
           console.log('Loading scheme with ID:', savedSchemeId)
-          
           // Load scheme from database
           const schemeResponse = await apiClient.get(`/api/schemes/${savedSchemeId}`, {
             user_google_id: userGoogleId
           })
-          
           console.log('Scheme response:', schemeResponse)
-          
+          let scheme = null
+          let formGradeName = ''
+          let termNameResolved = ''
           if (schemeResponse.success && schemeResponse.data) {
-            const scheme = schemeResponse.data
-            
-            // Set current scheme
+            scheme = schemeResponse.data
+            // Fetch forms/grades and terms for name lookup
+            const [formsGradesRes, termsRes] = await Promise.all([
+              apiClient.get('/api/v1/admin/forms-grades'),
+              apiClient.get('/api/v1/admin/terms')
+            ])
+            // Find and set form/grade name
+            if (formsGradesRes.success && Array.isArray(formsGradesRes.data)) {
+              const formObj = formsGradesRes.data.find((f: any) => f.id === scheme.form_grade_id)
+              formGradeName = formObj ? formObj.name : scheme.form_grade_id
+              setFormName(formGradeName)
+            }
+            // Find and set term name
+            if (termsRes.success && Array.isArray(termsRes.data)) {
+              const termObj = termsRes.data.find((t: any) => t.id === scheme.term_id)
+              termNameResolved = termObj ? termObj.name : scheme.term_id
+              setTermName(termNameResolved)
+            }
+            // Attach names to scheme object for ContentSelectionPanel
+            scheme = {
+              ...scheme,
+              form_grade_name: formGradeName,
+              term_name: termNameResolved
+            }
             setCurrentScheme(scheme)
-            
             console.log('Loaded scheme for timetable:', scheme)
-            
             // Set subject from scheme
             if (scheme.subject_id) {
               const subject = {
@@ -395,8 +410,6 @@ export default function TimetablePage() {
               }
               setCurrentSubject(subject)
               setCurrentSubjectState(subject)
-              
-              // Load topics and subtopics for this subject
               await loadTopicsAndSubtopicsForSubject(scheme.subject_id)
             }
           } else {
@@ -410,20 +423,18 @@ export default function TimetablePage() {
             router.push('/dashboard/scheme-of-work')
           }, 3000)
         }
-        
+
         // Load other general data
         await Promise.all([
           loadSchoolLevels(),
-          loadFormsGrades(),
-          loadTerms(),
           loadSubjects()
         ])
-        
+
         // Load existing timetable data if schemeId is available
         if (currentScheme?.id) {
           await loadExistingTimetable(currentScheme.id)
         }
-        
+
       } catch (error) {
         console.error('Error loading scheme:', error)
         setError('Error loading scheme data. Please try again.')
@@ -623,16 +634,13 @@ export default function TimetablePage() {
                     <label className="text-sm font-medium text-gray-700">Subject</label>
                     <p className="text-sm text-gray-900">{currentScheme.subject_name}</p>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-700">Form/Grade</label>
-                    <p className="text-sm text-gray-900">{currentScheme.form_grade_id}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-700">Term</label>
-                    <p className="text-sm text-gray-900">{currentScheme.term_id}</p>
+                  <div className="space-y-2 col-span-2">
+                    <label className="text-sm font-medium text-gray-700">Class & Term</label>
+                    <p className="text-sm text-gray-900">
+                      {formName ? formName : `Form ${currentScheme.form_grade_id}`}<span className="mx-2">|</span>{termName ? termName : `Term ${currentScheme.term_id}`}
+                    </p>
                   </div>
                 </div>
-                
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-700">Status</label>
                   <Badge variant={currentScheme.status === 'completed' ? 'default' : 'secondary'}>
@@ -658,14 +666,14 @@ export default function TimetablePage() {
                     </div>
                   </div>
                   <div className="flex items-center space-x-4 text-sm text-blue-700">
-                    <div className="flex items-center space-x-1">
-                      <Building2 className="h-4 w-4" />
-                      <span>Form {currentScheme.form_grade_id}</span>
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      <Calendar className="h-4 w-4" />
-                      <span>Term {currentScheme.term_id}</span>
-                    </div>
+                  <div className="flex items-center space-x-1">
+                    <Building2 className="h-4 w-4" />
+                    <span>Form {formName || currentScheme.form_grade_id}</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <Calendar className="h-4 w-4" />
+                    <span>Term {termName || currentScheme.term_id}</span>
+                  </div>
                   </div>
                 </div>
                 

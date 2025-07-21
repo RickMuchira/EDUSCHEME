@@ -374,8 +374,8 @@ const ContentSelectionPanel = ({
                 </div>
                 <div className="text-sm text-blue-700 space-y-1">
                   <p><span className="font-medium">School:</span> {currentScheme.school_name}</p>
-                  <p><span className="font-medium">Level:</span> Form/Grade {currentScheme.form_grade_id}</p>
-                  <p><span className="font-medium">Term:</span> {currentScheme.term_id}</p>
+                  <p><span className="font-medium">Level:</span> {currentScheme.form_grade_name || `Form/Grade ${currentScheme.form_grade_id}`}</p>
+                  <p><span className="font-medium">Term:</span> {currentScheme.term_name || currentScheme.term_id}</p>
                 </div>
                 <div className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded">
                   Topics and subtopics are filtered for this subject only
