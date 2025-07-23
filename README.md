@@ -1,168 +1,91 @@
-# EDUSCHEME
+# EDUSCHEME - AI-Powered Educational Scheme Generator
 
-A comprehensive educational management system built with modern web technologies.
+An intelligent system for generating curriculum schemes of work tailored to the Kenyan education system.
 
-## 🚀 Features
+## Recent Fixes (Latest Update)
 
-- **Backend**: FastAPI with SQLAlchemy for robust API development
-- **Frontend**: Next.js with TypeScript for a modern, responsive UI
-- **Database**: SQLite for development (easily configurable for production)
-- **Authentication**: Secure user authentication and authorization
-- **Admin Panel**: Comprehensive admin interface for managing subjects and users
+### ✅ Backend Issues Fixed
+- **Fixed timetable endpoint validation error** - Resolved 500 error that was occurring when fetching timetables
+- **Updated scheme generation to 12 weeks** - Changed from 13 to 12 weeks as requested
+- **Enhanced Biology Form 2 Term 1 context** - AI now properly uses Biology, Form 2, Term 1 context for scheme generation
+- **Improved mock data** - Better Biology-specific timetable data with proper topics and subtopics
+- **Groq API integration** - Enhanced fallback mode while maintaining Groq API support
 
-## 🛠️ Tech Stack
+### 🎯 Biology Form 2 Term 1 Specifics
+- **Subject**: Biology
+- **Form/Grade**: Form 2  
+- **Term**: Term 1
+- **Total Weeks**: 12 (exactly as requested)
+- **Total Lessons**: 48
+- **Key Topics**: 
+  - Cell Biology (Cell Structure, Cell Division)
+  - Nutrition in Plants and Animals (Photosynthesis, Respiration)
+  - Transport in Plants (Water Transport, Mineral Salt Transport)
 
-### Backend
-- **FastAPI** - Modern, fast web framework for building APIs
-- **SQLAlchemy** - SQL toolkit and ORM
-- **Pydantic** - Data validation using Python type annotations
-- **Uvicorn** - ASGI server for running FastAPI applications
+### 🔧 Technical Improvements
+- Fixed frontend-backend connection issues
+- Enhanced AI service with Biology-specific curriculum knowledge
+- Improved error handling and logging
+- Better validation for scheme generation responses
 
-### Frontend
-- **Next.js 14** - React framework with App Router
-- **TypeScript** - Type-safe JavaScript
-- **Tailwind CSS** - Utility-first CSS framework
-- **Shadcn/ui** - Beautiful and accessible UI components
-- **React Hook Form** - Performant forms with easy validation
+## Getting Started
 
-## 📁 Project Structure
+### Backend Setup
+```bash
+cd backend
+source venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --reload --host 127.0.0.1 --port 8000
+```
+
+### Frontend Setup
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### Environment Variables
+For enhanced AI generation, set up your Groq API key:
+```bash
+export GROQ_API_KEY=gsk_your_actual_api_key_here
+```
+
+If no API key is provided, the system uses an enhanced Biology Form 2 Term 1 template.
+
+## API Endpoints
+
+### Health Check
+- `GET /health` - Check server status
+
+### Schemes
+- `POST /api/schemes/generate` - Generate Biology Form 2 Term 1 scheme
+- `GET /api/schemes/{id}` - Get specific scheme
+- `PUT /api/schemes/{id}/content` - Save generated content
+
+### Timetables
+- `GET /api/timetables/by-scheme/{scheme_id}` - Get timetable data (now fixed)
+
+## Features
+
+- ✅ AI-powered scheme generation (Groq + enhanced fallback)
+- ✅ Biology Form 2 Term 1 curriculum compliance
+- ✅ KICD standards alignment
+- ✅ 12-week scheme structure
+- ✅ Practical activities and assessments
+- ✅ Cross-curricular connections
+- ✅ Local context integration
+
+## Project Structure
 
 ```
 EDUSCHEME/
-├── backend/                 # FastAPI backend
-│   ├── config.py           # Configuration settings
-│   ├── crud.py             # Database operations
-│   ├── database.py         # Database connection
-│   └── venv/               # Python virtual environment
-├── frontend/               # Next.js frontend
-│   ├── src/
-│   │   ├── app/            # App Router pages
-│   │   ├── components/     # Reusable UI components
-│   │   ├── hooks/          # Custom React hooks
-│   │   └── lib/            # Utility functions and API client
-│   ├── public/             # Static assets
-│   └── package.json        # Frontend dependencies
-└── README.md               # This file
+├── backend/           # FastAPI backend
+├── frontend/          # Next.js frontend  
+├── README.md         # This file
+└── .gitignore
 ```
 
-## 🚀 Getting Started
+## Recent Updates Log
 
-### Prerequisites
-
-- **Node.js** (v18 or higher)
-- **Python** (v3.8 or higher)
-- **Git**
-
-### Backend Setup
-
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
-
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Run the development server:
-   ```bash
-   uvicorn main:app --reload
-   ```
-
-The backend will be available at `http://localhost:8000`
-
-### Frontend Setup
-
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Run the development server:
-   ```bash
-   npm run dev
-   ```
-
-The frontend will be available at `http://localhost:3000`
-
-## 📚 API Documentation
-
-Once the backend is running, you can access:
-- **Interactive API docs**: `http://localhost:8000/docs`
-- **ReDoc documentation**: `http://localhost:8000/redoc`
-
-## 🔧 Configuration
-
-### Environment Variables
-
-Create a `.env` file in the backend directory:
-
-```env
-DATABASE_URL=sqlite:///./eduscheme.db
-SECRET_KEY=your-secret-key-here
-```
-
-## 🧪 Testing
-
-### Backend Tests
-```bash
-cd backend
-pytest
-```
-
-### Frontend Tests
-```bash
-cd frontend
-npm test
-```
-
-## 📦 Deployment
-
-### Backend Deployment
-The FastAPI application can be deployed to various platforms:
-- **Railway**
-- **Render**
-- **Heroku**
-- **DigitalOcean App Platform**
-
-### Frontend Deployment
-The Next.js application can be deployed to:
-- **Vercel** (recommended)
-- **Netlify**
-- **Railway**
-- **Render**
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 👥 Authors
-
-- **Rick Muchira** - *Initial work*
-
-## 🙏 Acknowledgments
-
-- FastAPI community for the excellent framework
-- Next.js team for the amazing React framework
-- Shadcn/ui for the beautiful component library
-- All contributors who help improve this project 
+**2025-07-23**: Fixed timetable validation errors, updated to 12 weeks, enhanced Biology Form 2 Term 1 context, improved Groq integration with quality fallback. 

@@ -30,17 +30,18 @@ class User(Base):
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
-    google_id = Column(String(255), unique=True, nullable=False, index=True)  # Google's unique ID
+    google_id = Column(String(255), unique=True, nullable=False, index=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
     name = Column(String(255), nullable=False)
-    picture = Column(String(500))  # URL to profile picture
+    picture = Column(String(500))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
     last_login = Column(DateTime)
     
     # Relationships
     schemes = relationship("SchemeOfWork", back_populates="user", cascade="all, delete-orphan")
-    timetables = relationship("Timetable", back_populates="user", cascade="all, delete-orphan")
+    lesson_plans = relationship("LessonPlan", back_populates="user", cascade="all, delete-orphan")
+    timetables = relationship("Timetable", back_populates="user")
 
 # Scheme of Work model
 class SchemeOfWork(Base):
@@ -105,6 +106,7 @@ class SchemeOfWork(Base):
     form_grade = relationship("FormGrade")
     term = relationship("Term")
     subject = relationship("Subject")
+    lesson_plans = relationship("LessonPlan", back_populates="scheme", cascade="all, delete-orphan")
     timetables = relationship("Timetable", back_populates="scheme")
 
     def to_dict(self):
@@ -164,8 +166,8 @@ class LessonPlan(Base):
     scheduled_date = Column(DateTime)
     
     # Relationships
-    user = relationship("User")
-    scheme = relationship("SchemeOfWork")
+    user = relationship("User", back_populates="lesson_plans")
+    scheme = relationship("SchemeOfWork", back_populates="lesson_plans")
     topic = relationship("Topic")
     subtopic = relationship("Subtopic")
 

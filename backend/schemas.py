@@ -56,7 +56,7 @@ class SchemeOfWorkCreate(SchemeOfWorkBase):
     school_level_id: int = Field(..., gt=0, description="School level ID")
     form_grade_id: int = Field(..., gt=0, description="Form/Grade ID")
     term_id: int = Field(..., gt=0, description="Term ID")
-    subject_id: Optional[int] = Field(None, gt=0, description="Subject ID")
+    subject_id: int = Field(..., gt=0, description="Subject ID")  # Now required
     due_date: Optional[datetime] = Field(None, description="Due date")
     user_email: Optional[str] = None
     user_name: Optional[str] = None

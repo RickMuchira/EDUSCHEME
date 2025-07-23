@@ -74,6 +74,8 @@ export default function TimetablePage() {
   const [selectedTopicIds, setSelectedTopicIds] = useState<number[]>([])
   const [selectedSubtopicIds, setSelectedSubtopicIds] = useState<number[]>([])
   const [isDataLoading, setIsDataLoading] = useState(true)
+  const [isTopicsLoading, setIsTopicsLoading] = useState(false)
+  const [isSubtopicsLoading, setIsSubtopicsLoading] = useState(false)
   
   // UI state
   const [showContextModal, setShowContextModal] = useState(false)
@@ -120,47 +122,50 @@ export default function TimetablePage() {
 
   // Helper functions for loading data
   const loadTopicsAndSubtopicsForSubject = async (subjectId: number) => {
+    setIsTopicsLoading(true)
+    setIsSubtopicsLoading(true)
     try {
       console.log('🔍 Loading topics for subject ID:', subjectId)
-      
       if (!subjectId) {
         console.error('❌ No subject ID provided')
         setError('No subject found in the scheme. Please check your scheme setup.')
+        setIsTopicsLoading(false)
+        setIsSubtopicsLoading(false)
         return
       }
-      
       // Load topics for this specific subject ONLY
       const topicsResponse = await apiClient.get('/api/v1/admin/topics', {
         subject_id: subjectId
       })
-      
       console.log('📚 Topics response:', topicsResponse)
-      
       if (topicsResponse.success && topicsResponse.data) {
         setAvailableTopics(topicsResponse.data)
-        console.log(`✅ Loaded ${topicsResponse.data.length} topics for subject ${subjectId}`)
-        
-        // Load subtopics for all topics of this subject
-        const allSubtopics: any[] = []
-        for (const topic of topicsResponse.data) {
-          const subtopicsResponse = await apiClient.get('/api/v1/admin/subtopics', {
-            topic_id: topic.id
-          })
-          
-          console.log(`📖 Subtopics for topic ${topic.id}:`, subtopicsResponse)
-          
-          if (subtopicsResponse.success && subtopicsResponse.data) {
-            allSubtopics.push(...subtopicsResponse.data)
-          }
-        }
-        setAvailableSubtopics(allSubtopics)
-        
-        console.log(`✅ Total topics loaded: ${topicsResponse.data.length}`)
-        console.log(`✅ Total subtopics loaded: ${allSubtopics.length}`)
-        
         if (topicsResponse.data.length === 0) {
           setError(`No topics found for this subject. The subject may not have curriculum content yet.`)
         }
+        // Load subtopics for all topics of this subject
+        const allSubtopics: any[] = []
+        for (const topic of topicsResponse.data) {
+          try {
+            const subtopicsResponse = await apiClient.get('/api/v1/admin/subtopics', {
+              topic_id: topic.id
+            })
+            console.log(`📖 Subtopics for topic ${topic.id}:`, subtopicsResponse)
+            if (subtopicsResponse.success && subtopicsResponse.data) {
+              allSubtopics.push(...subtopicsResponse.data)
+            } else {
+              console.warn(`No subtopics found for topic ${topic.id}`)
+            }
+          } catch (subErr) {
+            console.error(`Error fetching subtopics for topic ${topic.id}:`, subErr)
+          }
+        }
+        setAvailableSubtopics(allSubtopics)
+        if (allSubtopics.length === 0) {
+          setError('No subtopics found for any topic in this subject.')
+        }
+        console.log(`✅ Total topics loaded: ${topicsResponse.data.length}`)
+        console.log(`✅ Total subtopics loaded: ${allSubtopics.length}`)
       } else {
         console.error('❌ Failed to load topics:', topicsResponse)
         setError('Failed to load topics. Please check if curriculum content exists for this subject.')
@@ -168,6 +173,9 @@ export default function TimetablePage() {
     } catch (error: any) {
       console.error('❌ Error loading topics and subtopics for subject:', error)
       setError(`Failed to load curriculum content: ${error?.message || 'Unknown error'}`)
+    } finally {
+      setIsTopicsLoading(false)
+      setIsSubtopicsLoading(false)
     }
   }
 
@@ -478,82 +486,185 @@ export default function TimetablePage() {
 
       try {
         const savedSchemeId = localStorage.getItem('currentSchemeId')
-        if (savedSchemeId) {
-          console.log('Loading scheme with ID:', savedSchemeId)
-          // Load scheme from database
-          const schemeResponse = await apiClient.get(`/api/schemes/${savedSchemeId}`, {
-            user_google_id: userGoogleId
-          })
-          console.log('📋 Scheme response:', schemeResponse)
-          let scheme: any = null
-          let formGradeName = ''
-          let termNameResolved = ''
-          if (schemeResponse.success && schemeResponse.data) {
-            scheme = schemeResponse.data
-            console.log('🎯 Loaded scheme data:', {
-              id: scheme.id,
-              subject_id: scheme.subject_id,
-              subject_name: scheme.subject_name,
-              school_name: scheme.school_name,
-              form_grade_id: scheme.form_grade_id,
-              term_id: scheme.term_id
-            })
-            
-            // Fetch forms/grades and terms for name lookup
-            const [formsGradesRes, termsRes] = await Promise.all([
-              apiClient.get('/api/v1/admin/forms-grades'),
-              apiClient.get('/api/v1/admin/terms')
-            ])
-            // Find and set form/grade name
-            if (formsGradesRes.success && Array.isArray(formsGradesRes.data)) {
-              const formObj = formsGradesRes.data.find((f: any) => f.id === scheme.form_grade_id)
-              formGradeName = formObj ? formObj.name : scheme.form_grade_id
-              setFormName(formGradeName)
-            }
-            // Find and set term name
-            if (termsRes.success && Array.isArray(termsRes.data)) {
-              const termObj = termsRes.data.find((t: any) => t.id === scheme.term_id)
-              termNameResolved = termObj ? termObj.name : scheme.term_id
-              setTermName(termNameResolved)
-            }
-            // Attach names to scheme object for ContentSelectionPanel
-            scheme = {
-              ...scheme,
-              form_grade_name: formGradeName,
-              term_name: termNameResolved
-            }
-            setCurrentScheme(scheme)
-            console.log('✅ Processed scheme for timetable:', scheme)
-            
-            // Set subject from scheme
-            if (scheme.subject_id) {
-              console.log('🎯 Setting up subject from scheme:', scheme.subject_id)
-              const subject = {
-                id: scheme.subject_id,
-                name: scheme.subject_name,
-                code: scheme.subject_name?.substring(0, 3).toUpperCase() || 'SUB',
-                color: '#3B82F6',
-                is_active: true
-              }
-              setCurrentSubject(subject)
-              setCurrentSubjectState(subject)
-              console.log('📚 Loading topics and subtopics for subject:', scheme.subject_id)
-              await loadTopicsAndSubtopicsForSubject(scheme.subject_id)
-            } else {
-              console.error('❌ No subject_id found in scheme:', scheme)
-              setError('This scheme does not have a subject assigned. Please edit the scheme to add a subject.')
-            }
-          } else {
-            console.error('❌ Failed to load scheme:', schemeResponse)
-            setError('Failed to load scheme data')
-          }
-        } else {
+        if (!savedSchemeId) {
           console.log('No scheme found in localStorage, redirecting to create one')
           setError('No scheme found. Please create a scheme first.')
           setTimeout(() => {
             router.push('/dashboard/scheme-of-work')
           }, 3000)
+          return
         }
+
+        console.log('Loading scheme with ID:', savedSchemeId)
+        
+        // Load scheme from database with comprehensive error handling
+        let scheme: any = null
+        try {
+          const schemeResponse = await apiClient.get(`/api/schemes/${savedSchemeId}`, {
+            user_google_id: userGoogleId
+          })
+          
+          console.log('📋 Full scheme response:', schemeResponse)
+          
+          // Handle different response formats and errors
+          if (!schemeResponse) {
+            throw new Error('No response received from server')
+          }
+          
+          // Check for API errors (422, 404, etc.)
+          if (schemeResponse.status === 422) {
+            throw new Error('This scheme does not have a subject assigned. Please edit the scheme to add a subject.')
+          }
+          
+          if (schemeResponse.status === 404) {
+            throw new Error('Scheme not found. It may have been deleted.')
+          }
+          
+          if (schemeResponse.detail && schemeResponse.detail.includes('subject_id')) {
+            throw new Error('This scheme does not have a subject assigned. Please edit the scheme to add a subject.')
+          }
+          
+          // Extract scheme data from different response formats
+          if (schemeResponse.success === true && schemeResponse.data) {
+            scheme = schemeResponse.data
+          } else if (schemeResponse.id && typeof schemeResponse.id === 'number') {
+            scheme = schemeResponse
+          } else if (schemeResponse.success === false) {
+            throw new Error(schemeResponse.message || 'Failed to load scheme')
+          } else {
+            throw new Error('Invalid response format from server')
+          }
+          
+          // Validate scheme object
+          if (!scheme || typeof scheme !== 'object') {
+            throw new Error('Invalid scheme data received from server')
+          }
+          
+          // Check if scheme has required fields
+          if (!scheme.id) {
+            throw new Error('Scheme is missing ID')
+          }
+          
+          console.log('🔍 Detailed scheme validation:', {
+            scheme_id: scheme.id,
+            subject_id: scheme.subject_id,
+            subject_id_type: typeof scheme.subject_id,
+            subject_id_truthy: !!scheme.subject_id,
+            subject_name: scheme.subject_name,
+            all_keys: Object.keys(scheme)
+          })
+          
+          // Check for subject_id with multiple validation conditions
+          if (!scheme.subject_id || scheme.subject_id === 0 || scheme.subject_id === null || scheme.subject_id === undefined || scheme.subject_id === '') {
+            console.error('❌ Scheme subject_id validation failed:', {
+              subject_id: scheme.subject_id,
+              type: typeof scheme.subject_id,
+              is_null: scheme.subject_id === null,
+              is_undefined: scheme.subject_id === undefined,
+              is_zero: scheme.subject_id === 0,
+              is_empty_string: scheme.subject_id === ''
+            })
+            throw new Error('This scheme does not have a subject assigned. Please edit the scheme to add a subject.')
+          }
+          
+          console.log('🎯 Loaded scheme data:', {
+            id: scheme.id,
+            subject_id: scheme.subject_id,
+            subject_name: scheme.subject_name,
+            school_name: scheme.school_name,
+            form_grade_id: scheme.form_grade_id,
+            term_id: scheme.term_id
+          })
+          
+        } catch (apiError: any) {
+          console.error('🚨 API Error Details:', apiError)
+          
+          // Set the scheme ID for the edit button
+          setCurrentScheme({ id: savedSchemeId })
+          
+          // Determine error message
+          let errorMessage = 'Failed to load scheme data'
+          if (apiError.message) {
+            errorMessage = apiError.message
+          } else if (typeof apiError === 'string') {
+            errorMessage = apiError
+          }
+          
+          // If the error is about missing subject_id, clear the localStorage
+          // and suggest creating a new scheme
+          if (errorMessage.includes('subject assigned') || errorMessage.includes('subject_id')) {
+            console.warn('🔧 Clearing invalid scheme from localStorage')
+            localStorage.removeItem('currentSchemeId')
+            localStorage.removeItem('schemeFormData')
+            
+            // Modify error message to be more helpful
+            errorMessage = 'The selected scheme is incomplete or corrupted. Please create a new scheme.'
+            
+            // Clear the scheme ID so we don't show the edit button
+            setCurrentScheme(null)
+            
+            // Auto-redirect after a delay
+            setTimeout(() => {
+              router.push('/dashboard/scheme-of-work')
+            }, 4000)
+          }
+          
+          throw new Error(errorMessage)
+        }
+
+        // Fetch forms/grades and terms for name lookup
+        let formGradeName = ''
+        let termNameResolved = ''
+        
+        try {
+          const [formsGradesRes, termsRes] = await Promise.all([
+            apiClient.get('/api/v1/admin/forms-grades'),
+            apiClient.get('/api/v1/admin/terms')
+          ])
+          
+          // Find and set form/grade name
+          if (formsGradesRes.success && Array.isArray(formsGradesRes.data)) {
+            const formObj = formsGradesRes.data.find((f: any) => f.id === scheme.form_grade_id)
+            formGradeName = formObj ? formObj.name : `Form ${scheme.form_grade_id}`
+            setFormName(formGradeName)
+          }
+          
+          // Find and set term name
+          if (termsRes.success && Array.isArray(termsRes.data)) {
+            const termObj = termsRes.data.find((t: any) => t.id === scheme.term_id)
+            termNameResolved = termObj ? termObj.name : `Term ${scheme.term_id}`
+            setTermName(termNameResolved)
+          }
+        } catch (error) {
+          console.warn('Failed to load form/term names:', error)
+          formGradeName = `Form ${scheme.form_grade_id}`
+          termNameResolved = `Term ${scheme.term_id}`
+        }
+        
+        // Attach names to scheme object for ContentSelectionPanel
+        scheme = {
+          ...scheme,
+          form_grade_name: formGradeName,
+          term_name: termNameResolved
+        }
+        
+        setCurrentScheme(scheme)
+        console.log('✅ Processed scheme for timetable:', scheme)
+        
+        // Set subject from scheme - this should always work now
+        console.log('🎯 Setting up subject from scheme:', scheme.subject_id)
+        const subject = {
+          id: scheme.subject_id,
+          name: scheme.subject_name,
+          code: scheme.subject_name?.substring(0, 3).toUpperCase() || 'SUB',
+          color: '#3B82F6',
+          is_active: true
+        }
+        setCurrentSubject(subject)
+        setCurrentSubjectState(subject)
+        
+        console.log('📚 Loading topics and subtopics for subject:', scheme.subject_id)
+        await loadTopicsAndSubtopicsForSubject(scheme.subject_id)
 
         // Load other general data
         await Promise.all([
@@ -562,13 +673,13 @@ export default function TimetablePage() {
         ])
 
         // Load existing timetable data if schemeId is available
-        if (currentScheme?.id) {
-          await loadExistingTimetable(currentScheme.id)
+        if (scheme.id) {
+          await loadExistingTimetable(scheme.id)
         }
 
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error loading scheme:', error)
-        setError('Error loading scheme data. Please try again.')
+        setError(error.message || 'Error loading scheme data. Please try again.')
       } finally {
         setIsLoadingScheme(false)
         setIsDataLoading(false)
@@ -576,7 +687,7 @@ export default function TimetablePage() {
     }
 
     loadSchemeAndInitialize()
-  }, [getUserIdFromSession(session), router, currentScheme?.id])
+  }, [getUserIdFromSession(session), router])
 
   // Topic selection handlers
   const handleTopicSelect = useCallback(async (topicId: number, checked: boolean) => {
@@ -725,11 +836,28 @@ export default function TimetablePage() {
               <RefreshCw className="h-4 w-4 mr-2" />
               Retry
             </Button>
-            <Button onClick={() => router.push('/dashboard/scheme-of-work')}>
-              <School className="h-4 w-4 mr-2" />
-              Create Scheme
-            </Button>
+            
+            {currentScheme ? (
+              // Show edit button if we have a scheme ID
+              <Button onClick={() => router.push(`/dashboard/scheme-of-work/${currentScheme.id}/edit`)} variant="secondary">
+                <Edit className="h-4 w-4 mr-2" />
+                Edit Scheme
+              </Button>
+            ) : (
+              // Show create new scheme button if no scheme or scheme was cleared
+              <Button onClick={() => router.push('/dashboard/scheme-of-work')} className="bg-emerald-600 hover:bg-emerald-700">
+                <School className="h-4 w-4 mr-2" />
+                Create New Scheme
+              </Button>
+            )}
           </div>
+          
+          {/* Show auto-redirect message if scheme was cleared */}
+          {!currentScheme && error.includes('incomplete or corrupted') && (
+            <p className="text-sm text-gray-500 mt-4">
+              You will be redirected to create a new scheme in a few seconds...
+            </p>
+          )}
         </div>
       </div>
     )

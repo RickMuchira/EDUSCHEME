@@ -226,8 +226,34 @@ export default function SchemeOfWorkPage() {
       
       if (response && response.data && response.data.id) {
         console.log('Scheme saved successfully:', response);
-        localStorage.setItem('currentSchemeId', response.data.id.toString());
-        localStorage.setItem('schemeFormData', JSON.stringify({ ...formData, selectedSubject }));
+        
+        // Validate that the saved scheme has a subject_id
+        const savedScheme = response.data;
+        console.log('🔍 Validating saved scheme:', {
+          id: savedScheme.id,
+          subject_id: savedScheme.subject_id,
+          subject_name: savedScheme.subject_name,
+          has_subject_id: !!savedScheme.subject_id
+        });
+        
+        if (!savedScheme.subject_id || savedScheme.subject_id === 0) {
+          console.error('❌ Warning: Saved scheme is missing subject_id!');
+          setErrors({ general: 'Error: The scheme was saved but is missing subject information. Please try again.' });
+          return;
+        }
+        
+        localStorage.setItem('currentSchemeId', savedScheme.id.toString());
+        localStorage.setItem('schemeFormData', JSON.stringify({ 
+          ...formData, 
+          selectedSubject,
+          saved_scheme_data: {
+            id: savedScheme.id,
+            subject_id: savedScheme.subject_id,
+            subject_name: savedScheme.subject_name
+          }
+        }));
+        
+        console.log('✅ Valid scheme saved to localStorage:', savedScheme.id);
         router.push('/dashboard/timetable');
       } else {
         setErrors({ general: response?.message || 'Failed to save scheme. Please try again.' });

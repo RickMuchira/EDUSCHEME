@@ -19,6 +19,7 @@ import {
   Loader2
 } from 'lucide-react'
 import { formGradeApi, termApi } from '@/lib/api'
+import Link from "next/link";
 
 export default function TimetablePage() {
   const router = useRouter()
@@ -241,6 +242,7 @@ export default function TimetablePage() {
             >
               Instructions
             </Button>
+            <Link href="/dashboard/lesson-plans" className="text-blue-600 hover:underline font-medium">My Lesson Plans</Link>
           </div>
         </div>
 

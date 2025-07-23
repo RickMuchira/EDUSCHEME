@@ -85,35 +85,25 @@ export default function SchemeGeneratorPage() {
   // Improved context loading with DB priority, then localStorage, then demo
   useEffect(() => {
     const loadContext = async () => {
-      console.log('🔄 Starting enhanced context load...')
-      console.log('Session status:', sessionStatus)
-      console.log('Session data:', session)
-
       if (sessionStatus === 'loading') {
-        console.log('⏳ Session still loading, waiting...')
         return
       }
 
       if (sessionStatus === 'unauthenticated') {
-        console.log('🚫 User not authenticated, redirecting to login')
         router.push('/login')
         return
       }
 
       try {
         const schemeId = searchParams.get('schemeId')
-        console.log('📋 SchemeId from URL:', schemeId)
         if (!schemeId) {
-          console.log('❌ No scheme ID found in URL')
-          setError('No scheme ID found. Please start from the timetable page.')
+          setError('No scheme ID found in URL')
           setIsLoadingContext(false)
           return
         }
 
         const userGoogleId = (session?.user as any)?.id || (session?.user as any)?.sub || session?.user?.email
-        console.log('👤 User Google ID:', userGoogleId)
         if (!userGoogleId) {
-          console.log('❌ No user ID found in session')
           setError('User session not found. Please log in again.')
           setIsLoadingContext(false)
           return
@@ -125,18 +115,13 @@ export default function SchemeGeneratorPage() {
           const schemeResponse = await apiClient.get(`/api/schemes/${schemeId}`, {
             user_google_id: userGoogleId
           })
-          console.log('📊 Raw API Response:', schemeResponse)
           if (schemeResponse?.success === true && schemeResponse?.data) {
-            console.log('✅ Got ResponseWrapper format with data')
             scheme = schemeResponse.data
           } else if (schemeResponse?.id && typeof schemeResponse.id === 'number') {
-            console.log('✅ Got direct Pydantic model format')
             scheme = schemeResponse
           } else if (schemeResponse?.success === false) {
-            console.log('❌ API returned error:', schemeResponse.message)
             throw new Error(schemeResponse.message || 'API returned error')
           } else {
-            console.log('⚠️ Unknown response format:', schemeResponse)
             throw new Error('Unexpected response format from API')
           }
         } catch (apiError) {
@@ -150,7 +135,6 @@ export default function SchemeGeneratorPage() {
           const timetableResponse = await apiClient.get(`/api/timetables/by-scheme/${schemeId}`, {
             user_google_id: userGoogleId
           })
-          console.log('📅 Timetable API Response:', timetableResponse)
           if (timetableResponse?.success === true && timetableResponse?.data) {
             timetableData = timetableResponse.data
           } else if (timetableResponse?.success === false) {
@@ -168,7 +152,6 @@ export default function SchemeGeneratorPage() {
         let finalContext: SchemeContext
         if (scheme) {
           // Build context from database scheme + timetable data
-          console.log('🏗️ Building context from database scheme and timetable')
           finalContext = {
             timetableId: timetableData?.id?.toString() || 'default',
             schemeId: schemeId,
@@ -184,11 +167,9 @@ export default function SchemeGeneratorPage() {
             totalWeeks: timetableData?.total_weeks || 13,
             totalLessons: timetableData?.total_lessons || 0
           }
-          console.log('✅ Successfully built database context:', finalContext)
           setContext(finalContext)
         } else {
           // Fallback: Create demo context
-          console.log('🎭 Creating demo context for testing')
           finalContext = {
             timetableId: 'demo',
             schemeId: schemeId,
@@ -216,7 +197,6 @@ export default function SchemeGeneratorPage() {
           setContext(finalContext)
           setError('Cannot connect to backend database. Using demo context - AI generation will still work for testing purposes.')
         }
-        console.log('🎯 Final context set:', finalContext)
       } catch (error: any) {
         console.error('💥 Critical error in context loading:', error)
         const emergencyContext: SchemeContext = {
@@ -286,8 +266,6 @@ export default function SchemeGeneratorPage() {
       setGenerationStatus('Sending request to AI service...')
       setGenerationProgress(50)
 
-      console.log('🚀 Sending generation request with context:', generationContext)
-
       // Send generation request with proper structure
       const userGoogleId = (session.user as any).id || (session.user as any).sub || session.user.email
       const response = await apiClient.post(
@@ -301,38 +279,21 @@ export default function SchemeGeneratorPage() {
         }
       )
 
-      console.log('🔍 Generation API response:', response)
-      
-      setGenerationStatus('Processing AI response...')
-      setGenerationProgress(75)
-
       // Handle different response formats more robustly
+      let weeks: SchemeWeek[] = []
       if (response && typeof response === 'object') {
         if (response.success === true && response.data) {
-          console.log('✅ Generation success with ResponseWrapper format')
-          const weeks = response.data.weeks || response.data.scheme_content?.weeks || []
-          setGeneratedScheme(weeks)
-          setGenerationStatus('Generation completed successfully!')
-          setGenerationProgress(100)
+          weeks = response.data.weeks || response.data.scheme_content?.weeks || []
         } else if (response.success === false) {
           console.log('❌ Generation API returned success: false')
           console.log('❌ Error message:', response.message)
           throw new Error(response.message || response.error || 'Generation failed')
         } else if (response.weeks && Array.isArray(response.weeks)) {
-          console.log('✅ Direct weeks data format')
-          setGeneratedScheme(response.weeks)
-          setGenerationStatus('Generation completed successfully!')
-          setGenerationProgress(100)
+          weeks = response.weeks
         } else if (response.scheme_content?.weeks) {
-          console.log('✅ Nested scheme content format')
-          setGeneratedScheme(response.scheme_content.weeks)
-          setGenerationStatus('Generation completed successfully!')
-          setGenerationProgress(100)
+          weeks = response.scheme_content.weeks
         } else if (Array.isArray(response)) {
-          console.log('✅ Direct array format')
-          setGeneratedScheme(response)
-          setGenerationStatus('Generation completed successfully!')
-          setGenerationProgress(100)
+          weeks = response
         } else {
           console.log('⚠️ Unexpected generation response format:', response)
           console.log('Response keys:', Object.keys(response))
@@ -342,6 +303,48 @@ export default function SchemeGeneratorPage() {
         console.log('❌ Invalid generation response type:', typeof response)
         throw new Error('Invalid response from generation API')
       }
+
+      setGeneratedScheme(weeks)
+      setGenerationStatus('Generation completed! Saving to database...')
+      setGenerationProgress(75)
+
+      // Automatically save the generated scheme to database
+      if (weeks.length > 0) {
+        try {
+          const saveData = {
+            generated_content: {
+              weeks: weeks,
+              metadata: {
+                generated_at: new Date().toISOString(),
+                ai_model: generationConfig.model,
+                generation_config: generationConfig
+              }
+            },
+            ai_model_used: generationConfig.model,
+            user_google_id: userGoogleId
+          }
+          
+          const saveResponse = await apiClient.put(`/api/schemes/${context.schemeId}/content`, saveData, {
+            user_google_id: userGoogleId
+          })
+          
+          if (saveResponse && saveResponse.success) {
+            setGenerationStatus('Scheme generated and saved successfully!')
+            setGenerationProgress(100)
+          } else {
+            console.error('❌ Auto-save failed - Full response:', saveResponse)
+            setGenerationStatus('Generation completed, but auto-save failed. You can still download the PDF.')
+            setGenerationProgress(100)
+            setError('Auto-save failed, but generation was successful. PDF download should still work.')
+          }
+        } catch (saveError: any) {
+          console.error('Auto-save error:', saveError)
+          setGenerationStatus('Generation completed, but auto-save failed. You can still download the PDF.')
+          setGenerationProgress(100)
+          setError(`Auto-save failed: ${saveError.message}. Generation was successful.`)
+        }
+      }
+
     } catch (error: any) {
       console.error('Generation error:', error)
       setError(`Generation failed: ${error.message}`)
@@ -352,59 +355,7 @@ export default function SchemeGeneratorPage() {
     }
   }
 
-  // Save generated scheme
-  const saveScheme = async () => {
-    if (!context || !generatedScheme.length || !session?.user?.email) return
-    
-    setIsSaving(true)
-    setError('')
-    
-    try {
-      // Get the correct Google ID from session
-      const userGoogleId = (session.user as any).id || (session.user as any).sub || session.user.email
-      
-      const saveData = {
-        generated_content: {
-          weeks: generatedScheme,
-          metadata: {
-            generated_at: new Date().toISOString(),
-            ai_model: generationConfig.model,
-            generation_config: generationConfig
-          }
-        },
-        ai_model_used: generationConfig.model,
-        user_google_id: userGoogleId
-      }
-      
-      console.log('💾 Saving scheme with data:', saveData)
-      console.log('🔑 User Google ID:', userGoogleId)
-      console.log('📧 User email:', session.user.email)
-      console.log('📋 Scheme ID:', context.schemeId)
-      console.log('📊 Generated scheme weeks:', generatedScheme.length)
-      
-      const response = await apiClient.put(`/api/schemes/${context.schemeId}/content`, saveData, {
-        user_google_id: userGoogleId
-      })
-      
-      console.log('📥 Save response:', response)
-      console.log('✅ Response success:', response?.success)
-      console.log('📝 Response message:', response?.message)
-      console.log('📊 Response data:', response?.data)
-      
-      if (response && response.success) {
-        setGenerationStatus('Scheme saved successfully!')
-        setTimeout(() => setGenerationStatus(''), 3000)
-      } else {
-        console.error('❌ Save failed - Full response:', response)
-        throw new Error(response?.message || 'Failed to save scheme')
-      }
-    } catch (error: any) {
-      console.error('Save error:', error)
-      setError(`Failed to save scheme: ${error.message}`)
-    } finally {
-      setIsSaving(false)
-    }
-  }
+
 
   // PDF Download function
   const downloadPDF = async () => {
@@ -415,23 +366,66 @@ export default function SchemeGeneratorPage() {
 
     try {
       setIsSaving(true)
+      setGenerationStatus('Preparing PDF download...')
+      
       const userGoogleId = (session?.user as any)?.id || (session?.user as any)?.sub || session?.user?.email
       
-      console.log('📄 Downloading PDF for scheme:', context.schemeId)
+      console.log('PDF Download Debug Info:')
+      console.log('- Scheme ID:', context.schemeId)
+      console.log('- User Google ID:', userGoogleId)
+      console.log('- Context:', context)
       
       // Create the download URL
       const downloadUrl = `/api/schemes/${context.schemeId}/pdf?user_google_id=${encodeURIComponent(userGoogleId)}`
       const fullUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${downloadUrl}`
       
-      // Create a temporary link element and trigger download
+      console.log('- Full URL:', fullUrl)
+      
+      // Use fetch to download the PDF as a blob
+      const response = await fetch(fullUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/pdf',
+        },
+      })
+
+      console.log('Response status:', response.status)
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()))
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Error response body:', errorText)
+        
+        // Try to parse as JSON for better error message
+        let errorDetail = errorText
+        try {
+          const errorJson = JSON.parse(errorText)
+          errorDetail = errorJson.detail || errorJson.message || errorText
+        } catch (e) {
+          // Keep original text if not JSON
+        }
+        
+        throw new Error(`PDF download failed: ${response.status} - ${errorDetail}`)
+      }
+
+      // Get the PDF blob
+      const pdfBlob = await response.blob()
+      
+      console.log('PDF blob size:', pdfBlob.size)
+      
+      // Create a blob URL and trigger download
+      const blobUrl = window.URL.createObjectURL(pdfBlob)
       const link = document.createElement('a')
-      link.href = fullUrl
-      link.download = `Scheme_of_Work_${context.subject_name}_${new Date().toISOString().split('T')[0]}.pdf`
+      link.href = blobUrl
+      link.download = `Scheme_of_Work_${context.subject_name}_${context.form_grade}_${context.term}_${new Date().toISOString().split('T')[0]}.pdf`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
       
-      setGenerationStatus('PDF download started!')
+      // Clean up the blob URL
+      window.URL.revokeObjectURL(blobUrl)
+      
+      setGenerationStatus('PDF downloaded successfully!')
       setTimeout(() => setGenerationStatus(''), 3000)
       
     } catch (error: any) {
@@ -542,14 +536,7 @@ export default function SchemeGeneratorPage() {
               </div>
 
               {isIncompleteContext && (
-                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                  <div className="flex">
-                    <AlertCircle className="h-5 w-5 text-yellow-400 mr-2" />
-                    <div className="text-sm text-yellow-700">
-                      <strong>Notice:</strong> Some context data is incomplete. The AI will still generate a basic scheme, but for best results, ensure you have proper school, subject, and grade information.
-                    </div>
-                  </div>
-                </div>
+                <></>
               )}
             </CardContent>
           </Card>
@@ -576,11 +563,9 @@ export default function SchemeGeneratorPage() {
                         const userGoogleId = (session?.user as any)?.id || (session?.user as any)?.sub || session?.user?.email
                         if (userGoogleId) {
                           // Test 1: Try to get all schemes
-                          console.log('Testing API endpoint: /api/schemes')
                           const response = await apiClient.get('/api/schemes', {
                             user_google_id: userGoogleId
                           })
-                          console.log('All schemes response:', response)
                           
                           if (response.success && response.data && response.data.length > 0) {
                             const firstScheme = response.data[0]
@@ -721,7 +706,6 @@ export default function SchemeGeneratorPage() {
                 onClick={async () => {
                   try {
                     const response = await apiClient.get('/health')
-                    console.log('Health check response:', response)
                     setGenerationStatus('✅ API connection working!')
                     setTimeout(() => setGenerationStatus(''), 3000)
                   } catch (error) {
@@ -811,19 +795,8 @@ export default function SchemeGeneratorPage() {
                 ))}
               </div>
               
-              <div className="mt-6 flex gap-2">
-                <Button onClick={saveScheme} disabled={isSaving}>
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    'Save Scheme'
-                  )}
-                </Button>
-                
-                <Button onClick={downloadPDF} disabled={isSaving || !context?.schemeId} variant="outline">
+              <div className="mt-6 flex justify-center">
+                <Button onClick={downloadPDF} disabled={isSaving || !context?.schemeId} className="bg-blue-600 hover:bg-blue-700">
                   {isSaving ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -842,7 +815,7 @@ export default function SchemeGeneratorPage() {
         )}
 
         {/* Debug Information Panel (only show in development) */}
-        {process.env.NODE_ENV === 'development' && (
+        {false && (
           <Card className="mb-6 bg-gray-50">
             <CardHeader>
               <CardTitle className="text-sm">Debug Information</CardTitle>
