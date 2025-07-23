@@ -13,6 +13,13 @@ export const authOptions: NextAuthOptions = {
       // Only allow verified Google accounts
       if (account?.provider === "google" && profile?.email_verified) {
         try {
+          console.log('Attempting to create/update user with profile:', {
+            sub: profile.sub,
+            email: profile.email,
+            name: profile.name,
+            picture: profile.picture
+          });
+
           // Create or update user in database
           const userData = {
             google_id: profile.sub,
@@ -21,7 +28,10 @@ export const authOptions: NextAuthOptions = {
             picture: profile.picture
           };
 
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+          console.log('Making request to:', `${apiUrl}/api/users`);
+
+          const response = await fetch(`${apiUrl}/api/users`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -29,8 +39,20 @@ export const authOptions: NextAuthOptions = {
             body: JSON.stringify(userData),
           });
 
+          console.log('Response status:', response.status);
+          
           if (!response.ok) {
-            console.error('Failed to create/update user in database');
+            const errorText = await response.text();
+            console.error('Failed to create/update user in database. Status:', response.status, 'Error:', errorText);
+            return false;
+          }
+
+          const responseData = await response.json();
+          console.log('User creation/update response:', responseData);
+
+          // Check if the response indicates success
+          if (responseData.success === false) {
+            console.error('Backend returned error:', responseData.message);
             return false;
           }
 
@@ -41,6 +63,11 @@ export const authOptions: NextAuthOptions = {
           return false;
         }
       }
+      
+      console.error('Invalid sign-in attempt:', {
+        provider: account?.provider,
+        email_verified: profile?.email_verified
+      });
       return false;
     },
     async session({ session, token }) {
@@ -68,4 +95,5 @@ export const authOptions: NextAuthOptions = {
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   secret: process.env.NEXTAUTH_SECRET,
+  debug: process.env.NODE_ENV === 'development', // Enable debug in development
 }

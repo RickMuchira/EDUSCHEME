@@ -30,21 +30,45 @@ class User(Base):
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
-    google_id = Column(String(255), unique=True, nullable=False, index=True)
+    google_id = Column(String(255), unique=True, nullable=False, index=True)  # Google's unique ID
     email = Column(String(255), unique=True, nullable=False, index=True)
     name = Column(String(255), nullable=False)
-    picture = Column(String(500))
+    picture = Column(String(500))  # URL to profile picture
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
     last_login = Column(DateTime)
     
     # Relationships
     schemes = relationship("SchemeOfWork", back_populates="user", cascade="all, delete-orphan")
-    lesson_plans = relationship("LessonPlan", back_populates="user", cascade="all, delete-orphan")
-    timetables = relationship("Timetable", back_populates="user")
+    timetables = relationship("Timetable", back_populates="user", cascade="all, delete-orphan")
 
 # Scheme of Work model
 class SchemeOfWork(Base):
+    @property
+    def form_grade_name(self):
+        """Frontend expects form_grade_name"""
+        return self.form_grade.name if self.form_grade else None
+
+    @property
+    def term_name(self):
+        """Frontend expects term_name"""
+        return self.term.name if self.term else None
+
+    @property
+    def school_level_name(self):
+        """Useful for frontend display"""
+        return self.school_level.name if self.school_level else None
+
+    @property
+    def academic_year(self):
+        """Frontend expects academic_year"""
+        if hasattr(self, '_academic_year') and self._academic_year:
+            return self._academic_year
+        # Extract from created_at or use current year
+        if self.created_at:
+            return str(self.created_at.year)
+        from datetime import datetime
+        return str(datetime.now().year)
     __tablename__ = "schemes_of_work"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -81,19 +105,30 @@ class SchemeOfWork(Base):
     form_grade = relationship("FormGrade")
     term = relationship("Term")
     subject = relationship("Subject")
-    lesson_plans = relationship("LessonPlan", back_populates="scheme", cascade="all, delete-orphan")
     timetables = relationship("Timetable", back_populates="scheme")
 
     def to_dict(self):
-        """Update your existing to_dict method to include AI fields"""
+        """Updated to_dict method to include frontend-expected fields"""
         return {
             "id": self.id,
             "school_name": self.school_name,
             "subject_name": self.subject_name,
+            "form_grade": self.form_grade.name if self.form_grade else None,
+            "form_grade_name": self.form_grade_name,  # Frontend expects this
+            "term": self.term.name if self.term else None,
+            "term_name": self.term_name,  # Frontend expects this
+            "school_level_name": self.school_level_name,
+            "academic_year": self.academic_year,  # Frontend expects this
             "status": self.status,
             "progress": self.progress,
             "content": self.content,
             "scheme_metadata": self.scheme_metadata,
+            "generated_content": self.generated_content,
+            "ai_model_used": self.ai_model_used,
+            "generation_metadata": self.generation_metadata,
+            "generation_date": self.generation_date.isoformat() if self.generation_date else None,
+            "generation_version": self.generation_version,
+            "is_ai_generated": self.is_ai_generated,
             "user_id": self.user_id,
             "school_level_id": self.school_level_id,
             "form_grade_id": self.form_grade_id,
@@ -102,12 +137,6 @@ class SchemeOfWork(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "due_date": self.due_date.isoformat() if self.due_date else None,
-            "generated_content": self.generated_content,
-            "ai_model_used": self.ai_model_used,
-            "generation_metadata": self.generation_metadata,
-            "generation_date": self.generation_date.isoformat() if self.generation_date else None,
-            "generation_version": self.generation_version,
-            "is_ai_generated": self.is_ai_generated,
         }
 
 # Lesson Plan model
@@ -135,8 +164,8 @@ class LessonPlan(Base):
     scheduled_date = Column(DateTime)
     
     # Relationships
-    user = relationship("User", back_populates="lesson_plans")
-    scheme = relationship("SchemeOfWork", back_populates="lesson_plans")
+    user = relationship("User")
+    scheme = relationship("SchemeOfWork")
     topic = relationship("Topic")
     subtopic = relationship("Subtopic")
 

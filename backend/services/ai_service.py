@@ -11,19 +11,30 @@ logger = logging.getLogger(__name__)
 
 class GroqAIService:
     def __init__(self):
-        # REPLACE WITH YOUR ACTUAL GROQ API KEY
-        self.api_key = "gsk_your_groq_api_key_here"  # Replace with your real key
-        self.client = Groq(api_key=self.api_key)
-        self.model = "llama3-8b-8192"
+        # Get API key from environment or use placeholder
+        self.api_key = os.getenv("GROQ_API_KEY", "gsk_your_groq_api_key_here")
+        # Only initialize client if we have a real API key
+        if self.api_key and self.api_key != "gsk_your_groq_api_key_here":
+            try:
+                self.client = Groq(api_key=self.api_key)
+                self.model = "llama3-8b-8192"
+                self.api_available = True
+            except Exception as e:
+                logger.warning(f"Groq client initialization failed: {e}")
+                self.api_available = False
+        else:
+            logger.warning("No Groq API key found, using fallback mode")
+            self.api_available = False
     
     def generate_scheme_of_work(self, context: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate scheme of work using Groq API with timetable data"""
+        """Generate scheme of work - with fallback when API unavailable"""
         try:
+            if not self.api_available:
+                logger.info("Using fallback scheme generation")
+                return self._create_fallback_scheme(context)
             # Get enhanced context with timetable data
             enhanced_context = self._enhance_context_with_timetable(context)
-            
             prompt = self._build_enhanced_prompt(enhanced_context, config)
-            
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -39,31 +50,75 @@ class GroqAIService:
                 temperature=0.7,
                 max_tokens=4000
             )
-            
             content = response.choices[0].message.content
             return self._parse_scheme_response(content, enhanced_context)
-            
         except Exception as e:
-            logger.error(f"Groq API error: {str(e)}")
+            logger.error(f"AI generation error: {str(e)}")
             return self._create_fallback_scheme(context)
     
     def _enhance_context_with_timetable(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Enhance context with actual timetable data from database"""
-        timetable_data = context.get("timetable_data", {})
+        """Enhance context with timetable data for better AI generation"""
+        enhanced = context.copy()
         
-        # Organize lessons by week
-        weekly_breakdown = self._organize_lessons_by_week(timetable_data.get("slots", []))
+        # Extract timetable data if available
+        timetable_data = context.get("timetableData") or context.get("timetable_data") or {}
         
-        # Calculate lesson distribution
-        lesson_distribution = self._analyze_lesson_distribution(timetable_data.get("slots", []))
+        # Process selected topics and subtopics
+        selected_topics = context.get("selectedTopics", []) or timetable_data.get("selected_topics", [])
+        selected_subtopics = context.get("selectedSubtopics", []) or timetable_data.get("selected_subtopics", [])
+        lesson_slots = context.get("lessonSlots", []) or timetable_data.get("slots", [])
         
-        return {
-            **context,
-            "weekly_breakdown": weekly_breakdown,
-            "lesson_distribution": lesson_distribution,
-            "actual_topic_coverage": self._map_topic_coverage(timetable_data),
-            "total_teaching_periods": len(timetable_data.get("slots", []))
-        }
+        # Ensure topics and subtopics have proper structure
+        if selected_topics and isinstance(selected_topics[0], dict):
+            enhanced["selected_topics_titles"] = [topic.get("title", topic.get("name", str(topic))) for topic in selected_topics]
+        else:
+            enhanced["selected_topics_titles"] = selected_topics
+            
+        if selected_subtopics and isinstance(selected_subtopics[0], dict):
+            enhanced["selected_subtopics_titles"] = [sub.get("title", sub.get("name", str(sub))) for sub in selected_subtopics]
+        else:
+            enhanced["selected_subtopics_titles"] = selected_subtopics
+        
+        # Calculate total teaching periods from lesson slots
+        total_periods = len(lesson_slots) if lesson_slots else context.get("totalLessons", 0) or context.get("total_lessons", 0)
+        enhanced["total_teaching_periods"] = total_periods
+        
+        # Extract lesson distribution information
+        if lesson_slots:
+            # Group lessons by day
+            lessons_by_day = {}
+            for slot in lesson_slots:
+                day = slot.get("day", slot.get("day_of_week", "Unknown"))
+                if day not in lessons_by_day:
+                    lessons_by_day[day] = []
+                lessons_by_day[day].append({
+                    "time": slot.get("time", slot.get("time_slot", "")),
+                    "topic": slot.get("topic", slot.get("topic_name", "")),
+                    "subtopic": slot.get("subtopic", slot.get("subtopic_name", "")),
+                    "lesson_title": slot.get("lesson_title", ""),
+                    "is_double": slot.get("is_double_lesson", False)
+                })
+            
+            enhanced["lessons_by_day"] = lessons_by_day
+            enhanced["weekly_lesson_count"] = len(set(slot.get("day", slot.get("day_of_week", "Unknown")) for slot in lesson_slots))
+        
+        # Add school context if missing
+        if not enhanced.get("school_name"):
+            enhanced["school_name"] = context.get("school_name", "Default School")
+        if not enhanced.get("subject_name"):
+            enhanced["subject_name"] = context.get("subject_name", "Subject")
+        if not enhanced.get("form_grade"):
+            enhanced["form_grade"] = context.get("form_grade", "Form 1")
+        if not enhanced.get("term"):
+            enhanced["term"] = context.get("term", "Term 1")
+        if not enhanced.get("academic_year"):
+            enhanced["academic_year"] = context.get("academic_year", "2024")
+        
+        # Add school level context
+        enhanced["school_level"] = context.get("school_level", "Secondary")
+        
+        logger.info(f"Enhanced context: {total_periods} periods, {len(selected_topics)} topics, {len(selected_subtopics)} subtopics")
+        return enhanced
     
     def _organize_lessons_by_week(self, slots: List[Dict]) -> Dict[int, List[Dict]]:
         """Organize lesson slots by week number with enhanced learning sequence intelligence"""
@@ -504,51 +559,77 @@ class GroqAIService:
             - Individual student support"""
     
     def _build_enhanced_prompt(self, context: Dict[str, Any], config: Dict[str, Any]) -> str:
-        """Build comprehensive prompt using timetable data with enhanced pedagogical pacing"""
-        from services.kenya_curriculum import KenyaCurriculumService
+        """Build comprehensive prompt using timetable context"""
         
-        curriculum_service = KenyaCurriculumService()
-        references = curriculum_service.get_subject_references(
-            context["subject_name"], 
-            context["form_grade"]
-        )
+        # Extract key information
+        total_periods = context.get("total_teaching_periods", 0)
+        selected_topics = context.get("selected_topics_titles", [])
+        selected_subtopics = context.get("selected_subtopics_titles", [])
+        lessons_by_day = context.get("lessons_by_day", {})
         
-        # Format actual lesson distribution
-        lesson_distribution = context.get("lesson_distribution", {})
-        distribution_text = "\n".join([f"- {topic}: {count} lessons" for topic, count in lesson_distribution.items()])
+        # Build lesson distribution text
+        if selected_topics:
+            distribution_text = f"Selected Topics ({len(selected_topics)}):\n"
+            for i, topic in enumerate(selected_topics, 1):
+                distribution_text += f"{i}. {topic}\n"
+        else:
+            distribution_text = "No specific topics selected - generate comprehensive curriculum coverage"
         
-        # Format weekly breakdown with enhanced pedagogical insights
-        weekly_breakdown = context.get("weekly_breakdown", {})
-        weekly_text = ""
-        for week, lessons in weekly_breakdown.items():
-            weekly_text += f"\nWeek {week}:\n"
-            for lesson in lessons:
-                topic_week_info = f" (Topic Week {lesson.get('topic_week', 1)}/{lesson.get('total_topic_weeks', 1)})"
-                weekly_text += f"  Lesson {lesson['lesson_number']}: {lesson['topic']} - {lesson['subtopic']}{topic_week_info}\n"
+        if selected_subtopics:
+            distribution_text += f"\nSelected Subtopics ({len(selected_subtopics)}):\n"
+            for i, subtopic in enumerate(selected_subtopics, 1):
+                distribution_text += f"{i}. {subtopic}\n"
         
-        # Analyze learning progression
-        topic_coverage = context.get("actual_topic_coverage", [])
-        progression_analysis = self._analyze_learning_progression(topic_coverage)
+        # Build weekly lesson breakdown
+        if lessons_by_day:
+            weekly_text = "Actual Timetable Schedule:\n"
+            for day, lessons in lessons_by_day.items():
+                weekly_text += f"{day}: {len(lessons)} lesson(s)\n"
+                for lesson in lessons:
+                    weekly_text += f"  - {lesson.get('time', '')} | {lesson.get('topic', '')} | {lesson.get('subtopic', '')}\n"
+        else:
+            weekly_text = f"No specific timetable - distribute {total_periods} lessons across {max(1, total_periods // 4)} weeks"
         
-        # Pedagogical pacing recommendations
-        pacing_recommendations = self._generate_pacing_recommendations(context)
+        # Learning progression analysis
+        form_number = self._extract_form_number(context.get("form_grade", "Form 1"))
+        progression_analysis = f"""
+Learning Progression Analysis for {context.get('form_grade', 'Form 1')}:
+- Progression Type: {'Sequential' if form_number <= 2 else 'Spiral' if form_number <= 3 else 'Mastery-focused'}
+- Cognitive Level: {'Concrete operations' if form_number <= 1 else 'Formal operations developing' if form_number <= 2 else 'Advanced formal operations'}
+- Assessment Frequency: {'Weekly formative' if form_number <= 2 else 'Bi-weekly summative' if form_number <= 3 else 'Exam preparation focus'}
+"""
+        
+        # Pacing recommendations
+        weekly_lessons = len(lessons_by_day) if lessons_by_day else max(1, total_periods // 13)
+        pacing_recommendations = f"""
+Pacing Strategy:
+- {weekly_lessons} lesson(s) per week across {max(1, total_periods // weekly_lessons)} weeks
+- Each lesson should be 40-45 minutes (standard Kenyan school period)
+- Include 2-3 assessment opportunities per term
+- Balance theory (60%) and practical work (40%)
+- Reserve 2 weeks for revision and assessment
+"""
+        
+        # Subject references based on curriculum
+        subject_name = context.get("subject_name", "").lower()
+        references = self._get_subject_references(subject_name, context.get("form_grade", "Form 1"))
         
         prompt = f"""
 Create a comprehensive scheme of work with the following details:
 
 SCHOOL CONTEXT:
-- School: {context.get("school_name")}
-- Subject: {context.get("subject_name")}
-- Form/Grade: {context.get("form_grade")}
-- Term: {context.get("term")}
+- School: {context.get("school_name", "School Name")}
+- Subject: {context.get("subject_name", "Subject")}
+- Form/Grade: {context.get("form_grade", "Form 1")}
+- Term: {context.get("term", "Term 1")}
 - Academic Year: {context.get("academic_year", "2024")}
 - School Level: {context.get("school_level", "Secondary")}
 
 ACTUAL TIMETABLE ALLOCATION:
-- Total Teaching Periods: {context.get("total_teaching_periods", 0)}
-- Estimated Weeks: {max(1, context.get("total_teaching_periods", 0) // 4)}
+- Total Teaching Periods: {total_periods}
+- Estimated Weeks: {max(1, total_periods // max(1, weekly_lessons))}
 
-LESSON DISTRIBUTION PER TOPIC:
+CURRICULUM CONTENT:
 {distribution_text}
 
 WEEKLY LESSON BREAKDOWN:
@@ -588,13 +669,13 @@ LANGUAGE LEVEL: {config.get("language_complexity", "intermediate")}
 OUTPUT FORMAT: Return valid JSON with this exact structure:
 {{
   "scheme_header": {{
-    "school_name": "{context.get('school_name')}",
-    "subject": "{context.get('subject_name')}",
-    "form_grade": "{context.get('form_grade')}",
-    "term": "{context.get('term')}",
+    "school_name": "{context.get('school_name', 'School Name')}",
+    "subject": "{context.get('subject_name', 'Subject')}",
+    "form_grade": "{context.get('form_grade', 'Form 1')}",
+    "term": "{context.get('term', 'Term 1')}",
     "academic_year": "{context.get('academic_year', '2024')}",
-    "total_weeks": {max(1, context.get("total_teaching_periods", 0) // 4)},
-    "total_lessons": {context.get("total_teaching_periods", 0)},
+    "total_weeks": {max(1, total_periods // max(1, weekly_lessons))},
+    "total_lessons": {total_periods},
     "learning_progression": "{progression_analysis.split('Progression Type:')[1].split('\\n')[0].strip() if 'Progression Type:' in progression_analysis else 'Progressive'}"
   }},
   "weeks": [

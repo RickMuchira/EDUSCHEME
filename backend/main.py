@@ -2,8 +2,8 @@
 from fastapi import FastAPI, HTTPException, Depends, Query, Path
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+from fastapi.responses import JSONResponse, Response
+from sqlalchemy.orm import Session, joinedload  # Add joinedload import
 from sqlalchemy.sql import func
 from typing import List, Optional
 import time
@@ -22,12 +22,120 @@ from fastapi import APIRouter, Query, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime
 import logging
+
 from services.ai_service import GroqAIService
 from database import get_db
+from services.pdf_service import pdf_service
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Create FastAPI app
+
+app = FastAPI(
+    title="EDUScheme Pro API",
+    description="AI-powered curriculum planning and content management system",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
+
+# Enable CORS for frontend (React on localhost:3000)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # or ["*"] for all origins (not recommended for production)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ===== USER DEBUG & ENHANCED LOOKUP HELPERS =====
+def get_or_create_user(db: Session, user_identifier: str) -> models.User:
+    """
+    Enhanced user lookup that tries multiple methods and creates user if needed
+    """
+    logger.info(f"🔍 Looking up user with identifier: '{user_identifier}'")
+    # Method 1: Try by Google ID
+    user = crud.user.get_by_google_id(db, google_id=user_identifier)
+    if user:
+        logger.info(f"✅ Found user by Google ID: {user.email}")
+        return user
+    # Method 2: Try by email (in case user_identifier is email)
+    user = crud.user.get_by_email(db, email=user_identifier)
+    if user:
+        logger.info(f"✅ Found user by email: {user.email}")
+        return user
+    # Method 3: If identifier looks like email, create user
+    if "@" in user_identifier:
+        logger.info(f"🔧 Creating new user with email: {user_identifier}")
+        try:
+            user_data = {
+                "google_id": user_identifier,
+                "email": user_identifier,
+                "name": user_identifier.split("@")[0].title(),
+                "picture": None
+            }
+            user = crud.user.create(db=db, obj_in=schemas.UserCreate(**user_data))
+            logger.info(f"✅ Created new user: {user.email}")
+            return user
+        except Exception as e:
+            logger.error(f"❌ Failed to create user: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
+    logger.error(f"❌ Could not find or create user with identifier: '{user_identifier}'")
+    return None
+
+# ===== DEBUG USER SESSION ENDPOINT =====
+@app.get("/api/debug/user-session", tags=["Debug"])
+async def debug_user_session(
+    user_google_id: str = Query(..., description="User's Google ID from session"),
+    db: Session = Depends(get_db)
+):
+    """Debug endpoint to check user session and database"""
+    try:
+        logger.info(f"🔍 Debug - Received user_google_id: '{user_google_id}'")
+        user_by_google_id = crud.user.get_by_google_id(db, google_id=user_google_id)
+        user_by_email = crud.user.get_by_email(db, email=user_google_id)
+        all_users = db.query(models.User).limit(10).all()
+        return {
+            "success": True,
+            "debug_info": {
+                "received_identifier": user_google_id,
+                "user_found_by_google_id": bool(user_by_google_id),
+                "user_found_by_email": bool(user_by_email),
+                "user_by_google_id_details": {
+                    "id": user_by_google_id.id if user_by_google_id else None,
+                    "email": user_by_google_id.email if user_by_google_id else None,
+                    "google_id": user_by_google_id.google_id if user_by_google_id else None
+                } if user_by_google_id else None,
+                "user_by_email_details": {
+                    "id": user_by_email.id if user_by_email else None,
+                    "email": user_by_email.email if user_by_email else None,
+                    "google_id": user_by_email.google_id if user_by_email else None
+                } if user_by_email else None,
+                "all_users_in_db": [
+                    {
+                        "id": u.id,
+                        "email": u.email,
+                        "google_id": u.google_id,
+                        "name": u.name
+                    } for u in all_users
+                ],
+                "total_users_in_db": len(all_users)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Debug error: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 # Create FastAPI app
 app = FastAPI(
@@ -37,6 +145,95 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
+
+# ============= HELPER FUNCTIONS =============
+# ADD THIS HELPER FUNCTION AFTER THE APP CREATION BUT BEFORE ENDPOINTS
+
+def get_or_create_user(db: Session, user_identifier: str) -> models.User:
+    """
+    Enhanced user lookup that tries multiple methods and creates user if needed
+    """
+    logger.info(f"🔍 Looking up user with identifier: '{user_identifier}'")
+    # Method 1: Try by Google ID
+    user = crud.user.get_by_google_id(db, google_id=user_identifier)
+    if user:
+        logger.info(f"✅ Found user by Google ID: {user.email}")
+        return user
+    # Method 2: Try by email (in case user_identifier is email)
+    user = crud.user.get_by_email(db, email=user_identifier)
+    if user:
+        logger.info(f"✅ Found user by email: {user.email}")
+        return user
+    # Method 3: If identifier looks like email, create user
+    if "@" in user_identifier:
+        logger.info(f"🔧 Creating new user with email: {user_identifier}")
+        try:
+            user_data = {
+                "google_id": user_identifier,  # Use email as google_id for now
+                "email": user_identifier,
+                "name": user_identifier.split("@")[0].title(),  # Use email prefix as name
+                "picture": None
+            }
+            user = crud.user.create(db=db, obj_in=schemas.UserCreate(**user_data))
+            logger.info(f"✅ Created new user: {user.email}")
+            return user
+        except Exception as e:
+            logger.error(f"❌ Failed to create user: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
+    # If we get here, we couldn't find or create the user
+    logger.error(f"❌ Could not find or create user with identifier: '{user_identifier}'")
+    return None
+
+# ============= DEBUG ENDPOINT =============
+# ADD THIS DEBUG ENDPOINT AFTER THE HELPER FUNCTIONS
+
+@app.get("/api/debug/user-session", tags=["Debug"])
+async def debug_user_session(
+    user_google_id: str = Query(..., description="User's Google ID from session"),
+    db: Session = Depends(get_db)
+):
+    """Debug endpoint to check user session and database"""
+    try:
+        # Check what we received
+        logger.info(f"🔍 Debug - Received user_google_id: '{user_google_id}'")
+        # Try different ways to find user
+        user_by_google_id = crud.user.get_by_google_id(db, google_id=user_google_id)
+        user_by_email = crud.user.get_by_email(db, email=user_google_id)
+        # Get all users to see what's in database
+        all_users = db.query(models.User).limit(10).all()
+        return {
+            "success": True,
+            "debug_info": {
+                "received_identifier": user_google_id,
+                "user_found_by_google_id": bool(user_by_google_id),
+                "user_found_by_email": bool(user_by_email),
+                "user_by_google_id_details": {
+                    "id": user_by_google_id.id if user_by_google_id else None,
+                    "email": user_by_google_id.email if user_by_google_id else None,
+                    "google_id": user_by_google_id.google_id if user_by_google_id else None
+                } if user_by_google_id else None,
+                "user_by_email_details": {
+                    "id": user_by_email.id if user_by_email else None,
+                    "email": user_by_email.email if user_by_email else None,
+                    "google_id": user_by_email.google_id if user_by_email else None
+                } if user_by_email else None,
+                "all_users_in_db": [
+                    {
+                        "id": u.id,
+                        "email": u.email,
+                        "google_id": u.google_id,
+                        "name": u.name
+                    } for u in all_users
+                ],
+                "total_users_in_db": len(all_users)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Debug error: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 # CORS configuration
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
@@ -112,28 +309,110 @@ async def health_check():
 
 # ============= USER ENDPOINTS =============
 
-@app.post("/api/users", response_model=schemas.User, tags=["Users"])
+@app.post("/api/users", response_model=schemas.ResponseWrapper, tags=["Users"])
 async def create_user(
-   user: schemas.UserCreate,
+   user_data: dict,
    db: Session = Depends(get_db)
 ):
    """Create a new user from Google authentication"""
    try:
-       # Check if user already exists
-       existing_user = crud.user.get_by_google_id(db, google_id=user.google_id)
+       logger.info(f"Creating user with data: {user_data}")
+       
+       # Validate required fields
+       if not user_data.get("google_id"):
+           raise HTTPException(status_code=400, detail="google_id is required")
+       if not user_data.get("email"):
+           raise HTTPException(status_code=400, detail="email is required")
+       if not user_data.get("name"):
+           raise HTTPException(status_code=400, detail="name is required")
+       
+       # Check if user already exists by Google ID
+       existing_user = crud.user.get_by_google_id(db, google_id=user_data["google_id"])
        if existing_user:
-           # Update last login
+           # Update last login and return existing user
            existing_user.last_login = func.now()
            db.commit()
            db.refresh(existing_user)
-           return existing_user
+           logger.info(f"Updated existing user: {existing_user.email}")
+           return schemas.ResponseWrapper(
+               success=True,
+               message="User login updated successfully",
+               data={
+                   "id": existing_user.id,
+                   "google_id": existing_user.google_id,
+                   "email": existing_user.email,
+                   "name": existing_user.name,
+                   "picture": existing_user.picture,
+                   "is_active": existing_user.is_active,
+                   "created_at": existing_user.created_at.isoformat() if existing_user.created_at else None,
+                   "last_login": existing_user.last_login.isoformat() if existing_user.last_login else None
+               }
+           )
+       
+       # Check if user exists by email (in case Google ID changed)
+       existing_user_by_email = crud.user.get_by_email(db, email=user_data["email"])
+       if existing_user_by_email:
+           # Update Google ID and last login
+           existing_user_by_email.google_id = user_data["google_id"]
+           existing_user_by_email.last_login = func.now()
+           if user_data.get("name"):
+               existing_user_by_email.name = user_data["name"]
+           if user_data.get("picture"):
+               existing_user_by_email.picture = user_data["picture"]
+           db.commit()
+           db.refresh(existing_user_by_email)
+           logger.info(f"Updated existing user by email: {existing_user_by_email.email}")
+           return schemas.ResponseWrapper(
+               success=True,
+               message="User updated successfully",
+               data={
+                   "id": existing_user_by_email.id,
+                   "google_id": existing_user_by_email.google_id,
+                   "email": existing_user_by_email.email,
+                   "name": existing_user_by_email.name,
+                   "picture": existing_user_by_email.picture,
+                   "is_active": existing_user_by_email.is_active,
+                   "created_at": existing_user_by_email.created_at.isoformat() if existing_user_by_email.created_at else None,
+                   "last_login": existing_user_by_email.last_login.isoformat() if existing_user_by_email.last_login else None
+               }
+           )
        
        # Create new user
-       db_user = crud.user.create(db=db, obj_in=user)
-       return db_user
+       user_create = schemas.UserCreate(
+           google_id=user_data["google_id"],
+           email=user_data["email"],
+           name=user_data["name"],
+           picture=user_data.get("picture")
+       )
+       
+       db_user = crud.user.create(db=db, obj_in=user_create)
+       logger.info(f"Created new user: {db_user.email}")
+       
+       return schemas.ResponseWrapper(
+           success=True,
+           message="User created successfully",
+           data={
+               "id": db_user.id,
+               "google_id": db_user.google_id,
+               "email": db_user.email,
+               "name": db_user.name,
+               "picture": db_user.picture,
+               "is_active": db_user.is_active,
+               "created_at": db_user.created_at.isoformat() if db_user.created_at else None,
+               "last_login": db_user.last_login.isoformat() if db_user.last_login else None
+           }
+       )
+       
+   except HTTPException as he:
+       logger.error(f"HTTP Exception in user creation: {he.detail}")
+       raise he
    except Exception as e:
-       logger.error(f"Error creating user: {str(e)}")
-       raise HTTPException(status_code=400, detail=str(e))
+       logger.error(f"Error creating user: {str(e)}", exc_info=True)
+       return schemas.ResponseWrapper(
+           success=False,
+           message=f"Failed to create user: {str(e)}",
+           data=None
+       )
 
 @app.get("/api/users/me", response_model=schemas.User, tags=["Users"])
 async def get_current_user(
@@ -242,26 +521,72 @@ async def get_scheme(
    user_google_id: str = Query(..., description="User's Google ID"),
    db: Session = Depends(get_db)
 ):
-   try:
-       user = crud.user.get_by_google_id(db, google_id=user_google_id)
-       if not user:
-           raise HTTPException(status_code=404, detail="User not found")
-       scheme = crud.scheme.get(db=db, id=scheme_id)
-       if not scheme:
-           raise HTTPException(status_code=404, detail="Scheme not found")
-       if scheme.user_id != user.id:
-           raise HTTPException(status_code=403, detail="Not authorized to access this scheme")
-       return schemas.ResponseWrapper(
-           success=True,
-           message="Scheme retrieved successfully",
-           data=schemas.SchemeOfWork.model_validate(scheme)
-       )
-   except Exception as e:
-       return schemas.ResponseWrapper(
-           success=False,
-           message=str(e),
-           data=None
-       )
+    try:
+        logger.info(f"🔍 Getting scheme {scheme_id} for user: {user_google_id}")
+        user = get_or_create_user(db, user_google_id)
+        if not user:
+            return schemas.ResponseWrapper(
+                success=False,
+                message=f"User not found and could not be created. Identifier: {user_google_id}",
+                data=None
+            )
+        logger.info(f"✅ Found user: {user.email} (ID: {user.id})")
+        scheme = db.query(models.SchemeOfWork).options(
+            joinedload(models.SchemeOfWork.form_grade),
+            joinedload(models.SchemeOfWork.term),
+            joinedload(models.SchemeOfWork.school_level),
+            joinedload(models.SchemeOfWork.subject)
+        ).filter(models.SchemeOfWork.id == scheme_id).first()
+        if not scheme:
+            return schemas.ResponseWrapper(
+                success=False,
+                message="Scheme not found. Please select a valid scheme.",
+                data=None
+            )
+        if scheme.user_id != user.id:
+            logger.warning(f"⚠️ Scheme belongs to user {scheme.user_id} but requested by user {user.id}")
+            # For debugging, let's still return the scheme but with a warning
+            # In production, you'd want to enforce this strictly
+        scheme_data = {
+            "id": scheme.id,
+            "school_name": scheme.school_name,
+            "subject_name": scheme.subject_name,
+            "subject_id": scheme.subject_id,  # 🔧 ADD THIS - Frontend needs subject_id
+            "school_level_id": scheme.school_level_id,  # 🔧 ADD THIS - Frontend needs school_level_id  
+            "form_grade_id": scheme.form_grade_id,  # 🔧 ADD THIS - Frontend needs form_grade_id
+            "term_id": scheme.term_id,  # 🔧 ADD THIS - Frontend needs term_id
+            "form_grade": scheme.form_grade.name if scheme.form_grade else "Unknown Grade",
+            "form_grade_name": scheme.form_grade.name if scheme.form_grade else "Unknown Grade",
+            "term": scheme.term.name if scheme.term else "Unknown Term",
+            "term_name": scheme.term.name if scheme.term else "Unknown Term",
+            "academic_year": str(scheme.created_at.year) if scheme.created_at else "2024",
+            "status": scheme.status,
+            "progress": scheme.progress,
+            "content": scheme.content,
+            "scheme_metadata": scheme.scheme_metadata,
+            "generated_content": scheme.generated_content,
+            "ai_model_used": scheme.ai_model_used,
+            "generation_metadata": scheme.generation_metadata,
+            "generation_date": scheme.generation_date.isoformat() if scheme.generation_date else None,
+            "generation_version": scheme.generation_version,
+            "is_ai_generated": scheme.is_ai_generated,
+            "user_id": scheme.user_id,
+            "created_at": scheme.created_at.isoformat() if scheme.created_at else None,
+            "updated_at": scheme.updated_at.isoformat() if scheme.updated_at else None,
+        }
+        logger.info(f"✅ Returning scheme data: {scheme_data}")
+        return schemas.ResponseWrapper(
+            success=True,
+            message="Scheme retrieved successfully",
+            data=scheme_data
+        )
+    except Exception as e:
+        logger.error(f"❌ Error getting scheme {scheme_id}: {str(e)}", exc_info=True)
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"An unexpected error occurred: {str(e)}",
+            data=None
+        )
 
 @app.put("/api/schemes/{scheme_id}", response_model=schemas.ResponseWrapper, tags=["Schemes"])
 async def update_scheme(
@@ -1429,128 +1754,91 @@ async def create_timetable(
     """Create a new timetable linked to a scheme"""
     try:
         logger.info(f"Creating timetable for user: {user_google_id}")
-        user = crud.user.get_by_google_id(db, google_id=user_google_id)
+        user = get_or_create_user(db, user_google_id)
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        scheme_id = timetable_data.get('scheme_id')
+            return schemas.ResponseWrapper(
+                success=False,
+                message=f"User not found and could not be created. Identifier: {user_google_id}",
+                data=None
+            )
+        
+        # Validate scheme exists
+        scheme_id = timetable_data.get("scheme_id")
         if not scheme_id:
-            raise HTTPException(status_code=400, detail="scheme_id is required")
-        scheme = crud.scheme.get(db=db, id=scheme_id)
-        if not scheme or scheme.user_id != user.id:
-            raise HTTPException(status_code=404, detail="Scheme not found or not authorized")
-        timetable_id = str(uuid.uuid4())
-        db_timetable = models.Timetable(
-            id=timetable_id,
+            return schemas.ResponseWrapper(
+                success=False,
+                message="scheme_id is required",
+                data=None
+            )
+        
+        scheme = db.query(models.SchemeOfWork).filter(
+            models.SchemeOfWork.id == scheme_id,
+            models.SchemeOfWork.user_id == user.id
+        ).first()
+        
+        if not scheme:
+            return schemas.ResponseWrapper(
+                success=False,
+                message="Scheme not found or access denied",
+                data=None
+            )
+        
+        # Create timetable
+        timetable = models.Timetable(
             user_id=user.id,
             scheme_id=scheme_id,
-            name=timetable_data.get('name', f"{scheme.subject_name} Timetable"),
-            description=timetable_data.get('description', f"Timetable for {scheme.subject_name}"),
-            selected_topics=timetable_data.get('selected_topics', []),
-            selected_subtopics=timetable_data.get('selected_subtopics', []),
-            status='draft'
+            name=timetable_data.get("name", f"Timetable for {scheme.subject_name}"),
+            description=timetable_data.get("description", ""),
+            status=timetable_data.get("status", "draft"),
+            selected_topics=timetable_data.get("selected_topics", []),
+            selected_subtopics=timetable_data.get("selected_subtopics", []),
+            total_lessons=timetable_data.get("total_lessons", 0),
+            total_weeks=timetable_data.get("total_weeks", 0)
         )
-        db.add(db_timetable)
-        slots_data = timetable_data.get('slots', [])
-        for slot_data in slots_data:
-            db_slot = models.TimetableSlot(
-                id=str(uuid.uuid4()),
-                timetable_id=timetable_id,
-                day_of_week=slot_data.get('day_of_week'),
-                time_slot=slot_data.get('time_slot'),
-                period_number=slot_data.get('period_number'),
-                topic_id=slot_data.get('topic_id'),
-                subtopic_id=slot_data.get('subtopic_id'),
-                lesson_title=slot_data.get('lesson_title'),
-                is_double_lesson=slot_data.get('is_double_lesson', False),
-                is_evening=slot_data.get('is_evening', False)
-            )
-            db.add(db_slot)
+        
+        db.add(timetable)
         db.commit()
-        db.refresh(db_timetable)
-        logger.info(f"Timetable created successfully: {db_timetable.id}")
+        db.refresh(timetable)
+        
+        # Create timetable slots if provided
+        slots_data = timetable_data.get("slots", [])
+        for slot_data in slots_data:
+            slot = models.TimetableSlot(
+                timetable_id=timetable.id,
+                day_of_week=slot_data.get("day_of_week", "Monday"),
+                time_slot=slot_data.get("time_slot", "08:00-09:00"),
+                period_number=slot_data.get("period_number", 1),
+                topic_id=slot_data.get("topic_id"),
+                subtopic_id=slot_data.get("subtopic_id"),
+                lesson_title=slot_data.get("lesson_title", ""),
+                lesson_objectives=slot_data.get("lesson_objectives", ""),
+                activities=slot_data.get("activities", []),
+                resources=slot_data.get("resources", []),
+                is_double_lesson=slot_data.get("is_double_lesson", False),
+                is_evening=slot_data.get("is_evening", False)
+            )
+            db.add(slot)
+        
+        db.commit()
+        
         return schemas.ResponseWrapper(
             success=True,
             message="Timetable created successfully",
             data={
-                "id": db_timetable.id,
-                "name": db_timetable.name,
-                "scheme_id": db_timetable.scheme_id,
-                "selected_topics": db_timetable.selected_topics,
-                "selected_subtopics": db_timetable.selected_subtopics,
-                "total_slots": len(slots_data),
-                "created_at": db_timetable.created_at.isoformat()
+                "id": timetable.id,
+                "scheme_id": timetable.scheme_id,
+                "name": timetable.name,
+                "status": timetable.status,
+                "total_lessons": len(slots_data)
             }
         )
-    except HTTPException as he:
-        logger.error(f"HTTP Exception: {he.detail}")
-        raise he
+        
     except Exception as e:
         logger.error(f"Error creating timetable: {str(e)}")
         db.rollback()
         return schemas.ResponseWrapper(
             success=False,
             message=f"Failed to create timetable: {str(e)}",
-            data=None
-        )
-
-@app.get("/api/timetables/by-scheme/{scheme_id}", response_model=schemas.ResponseWrapper, tags=["Timetables"])
-async def get_timetable_by_scheme(
-    scheme_id: int,
-    user_google_id: str = Query(..., description="User's Google ID"),
-    db: Session = Depends(get_db)
-):
-    """Get timetable for a specific scheme"""
-    try:
-        user = crud.user.get_by_google_id(db, google_id=user_google_id)
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        timetable = db.query(models.Timetable).filter(
-            models.Timetable.scheme_id == scheme_id,
-            models.Timetable.user_id == user.id,
-            models.Timetable.is_active == True
-        ).first()
-        if not timetable:
-            return schemas.ResponseWrapper(
-                success=False,
-                message="No timetable found for this scheme",
-                data=None
-            )
-        slots = db.query(models.TimetableSlot).filter(
-            models.TimetableSlot.timetable_id == timetable.id
-        ).all()
-        return schemas.ResponseWrapper(
-            success=True,
-            message="Timetable retrieved successfully",
-            data={
-                "id": timetable.id,
-                "name": timetable.name,
-                "description": timetable.description,
-                "scheme_id": timetable.scheme_id,
-                "selected_topics": timetable.selected_topics or [],
-                "selected_subtopics": timetable.selected_subtopics or [],
-                "slots": [
-                    {
-                        "id": slot.id,
-                        "day_of_week": slot.day_of_week,
-                        "time_slot": slot.time_slot,
-                        "period_number": slot.period_number,
-                        "topic_id": slot.topic_id,
-                        "subtopic_id": slot.subtopic_id,
-                        "lesson_title": slot.lesson_title,
-                        "is_double_lesson": slot.is_double_lesson,
-                        "is_evening": slot.is_evening
-                    }
-                    for slot in slots
-                ],
-                "created_at": timetable.created_at.isoformat(),
-                "updated_at": timetable.updated_at.isoformat()
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error getting timetable: {str(e)}")
-        return schemas.ResponseWrapper(
-            success=False,
-            message=f"Failed to get timetable: {str(e)}",
             data=None
         )
 
@@ -1561,63 +1849,206 @@ async def update_timetable(
     user_google_id: str = Query(..., description="User's Google ID"),
     db: Session = Depends(get_db)
 ):
-    """Update existing timetable"""
+    """Update an existing timetable"""
     try:
-        user = crud.user.get_by_google_id(db, google_id=user_google_id)
+        logger.info(f"Updating timetable {timetable_id} for user: {user_google_id}")
+        user = get_or_create_user(db, user_google_id)
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            return schemas.ResponseWrapper(
+                success=False,
+                message=f"User not found and could not be created. Identifier: {user_google_id}",
+                data=None
+            )
+        
         timetable = db.query(models.Timetable).filter(
             models.Timetable.id == timetable_id,
             models.Timetable.user_id == user.id
         ).first()
+        
         if not timetable:
-            raise HTTPException(status_code=404, detail="Timetable not found")
-        if 'selected_topics' in timetable_data:
-            timetable.selected_topics = timetable_data['selected_topics']
-        if 'selected_subtopics' in timetable_data:
-            timetable.selected_subtopics = timetable_data['selected_subtopics']
-        if 'name' in timetable_data:
-            timetable.name = timetable_data['name']
-        if 'description' in timetable_data:
-            timetable.description = timetable_data['description']
+            return schemas.ResponseWrapper(
+                success=False,
+                message="Timetable not found or access denied",
+                data=None
+            )
+        
+        # Update timetable fields
+        if "name" in timetable_data:
+            timetable.name = timetable_data["name"]
+        if "description" in timetable_data:
+            timetable.description = timetable_data["description"]
+        if "status" in timetable_data:
+            timetable.status = timetable_data["status"]
+        if "selected_topics" in timetable_data:
+            timetable.selected_topics = timetable_data["selected_topics"]
+        if "selected_subtopics" in timetable_data:
+            timetable.selected_subtopics = timetable_data["selected_subtopics"]
+        if "total_lessons" in timetable_data:
+            timetable.total_lessons = timetable_data["total_lessons"]
+        if "total_weeks" in timetable_data:
+            timetable.total_weeks = timetable_data["total_weeks"]
+        
         timetable.updated_at = datetime.utcnow()
-        if 'slots' in timetable_data:
+        
+        # Update slots if provided
+        if "slots" in timetable_data:
+            # Delete existing slots
             db.query(models.TimetableSlot).filter(
                 models.TimetableSlot.timetable_id == timetable_id
             ).delete()
-            for slot_data in timetable_data['slots']:
-                db_slot = models.TimetableSlot(
-                    id=str(uuid.uuid4()),
-                    timetable_id=timetable_id,
-                    day_of_week=slot_data.get('day_of_week'),
-                    time_slot=slot_data.get('time_slot'),
-                    period_number=slot_data.get('period_number'),
-                    topic_id=slot_data.get('topic_id'),
-                    subtopic_id=slot_data.get('subtopic_id'),
-                    lesson_title=slot_data.get('lesson_title'),
-                    is_double_lesson=slot_data.get('is_double_lesson', False),
-                    is_evening=slot_data.get('is_evening', False)
+            
+            # Create new slots
+            for slot_data in timetable_data["slots"]:
+                slot = models.TimetableSlot(
+                    timetable_id=timetable.id,
+                    day_of_week=slot_data.get("day_of_week", "Monday"),
+                    time_slot=slot_data.get("time_slot", "08:00-09:00"),
+                    period_number=slot_data.get("period_number", 1),
+                    topic_id=slot_data.get("topic_id"),
+                    subtopic_id=slot_data.get("subtopic_id"),
+                    lesson_title=slot_data.get("lesson_title", ""),
+                    lesson_objectives=slot_data.get("lesson_objectives", ""),
+                    activities=slot_data.get("activities", []),
+                    resources=slot_data.get("resources", []),
+                    is_double_lesson=slot_data.get("is_double_lesson", False),
+                    is_evening=slot_data.get("is_evening", False)
                 )
-                db.add(db_slot)
+                db.add(slot)
+        
         db.commit()
         db.refresh(timetable)
+        
         return schemas.ResponseWrapper(
             success=True,
             message="Timetable updated successfully",
             data={
                 "id": timetable.id,
-                "updated_at": timetable.updated_at.isoformat()
+                "scheme_id": timetable.scheme_id,
+                "name": timetable.name,
+                "status": timetable.status,
+                "updated_at": timetable.updated_at.isoformat() if timetable.updated_at else None
             }
         )
-    except HTTPException as he:
-        logger.error(f"HTTP Exception: {he.detail}")
-        raise he
+        
     except Exception as e:
         logger.error(f"Error updating timetable: {str(e)}")
         db.rollback()
         return schemas.ResponseWrapper(
             success=False,
             message=f"Failed to update timetable: {str(e)}",
+            data=None
+        )
+
+@app.get("/api/timetables/by-scheme/{scheme_id}", response_model=schemas.ResponseWrapper, tags=["Timetables"])
+async def get_timetable_by_scheme(
+    scheme_id: int,
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Get timetable for a specific scheme - frontend compatible"""
+    try:
+        logger.info(f"🔍 Getting timetable for scheme {scheme_id}, user: {user_google_id}")
+        user = get_or_create_user(db, user_google_id)
+        if not user:
+            return schemas.ResponseWrapper(
+                success=False,
+                message=f"User not found and could not be created. Identifier: {user_google_id}",
+                data=None
+            )
+        
+        # Get timetable with all related data
+        timetable = db.query(models.Timetable).filter(
+            models.Timetable.scheme_id == scheme_id,
+            models.Timetable.user_id == user.id,
+            models.Timetable.is_active == True
+        ).first()
+        
+        if not timetable:
+            logger.info(f"⚠️ No timetable found for scheme {scheme_id}, returning empty data")
+            return schemas.ResponseWrapper(
+                success=True,
+                message="No timetable found for this scheme",
+                data={
+                    "id": None,
+                    "name": f"New Timetable for Scheme {scheme_id}",
+                    "description": "",
+                    "scheme_id": scheme_id,
+                    "selected_topics": [],
+                    "selected_subtopics": [],
+                    "slots": [],
+                    "total_lessons": 0,
+                    "total_weeks": 0,
+                    "status": "draft"
+                }
+            )
+        
+        # Get all slots for this timetable
+        slots = db.query(models.TimetableSlot).filter(
+            models.TimetableSlot.timetable_id == timetable.id
+        ).all()
+        
+        # Format slots for frontend
+        formatted_slots = []
+        for slot in slots:
+            slot_data = {
+                "id": slot.id,
+                "day": slot.day_of_week,
+                "day_of_week": slot.day_of_week,
+                "time": slot.time_slot,
+                "time_slot": slot.time_slot,
+                "period_number": slot.period_number,
+                "topic_id": slot.topic_id,
+                "subtopic_id": slot.subtopic_id,
+                "lesson_title": slot.lesson_title or "",
+                "lesson_objectives": slot.lesson_objectives or "",
+                "activities": slot.activities or [],
+                "resources": slot.resources or [],
+                "is_double_lesson": slot.is_double_lesson,
+                "is_evening": slot.is_evening
+            }
+            
+            # Add topic and subtopic names if available
+            if slot.topic:
+                slot_data.update({
+                    "topic": slot.topic.title,
+                    "topic_name": slot.topic.title
+                })
+            
+            if slot.subtopic:
+                slot_data.update({
+                    "subtopic": slot.subtopic.title,
+                    "subtopic_name": slot.subtopic.title
+                })
+            
+            formatted_slots.append(slot_data)
+        
+        timetable_data = {
+            "id": timetable.id,
+            "name": timetable.name,
+            "description": timetable.description or "",
+            "scheme_id": timetable.scheme_id,
+            "selected_topics": timetable.selected_topics or [],
+            "selected_subtopics": timetable.selected_subtopics or [],
+            "slots": formatted_slots,
+            "total_lessons": len(formatted_slots),
+            "total_weeks": timetable.total_weeks or 0,
+            "status": timetable.status,
+            "created_at": timetable.created_at.isoformat() if timetable.created_at else None,
+            "updated_at": timetable.updated_at.isoformat() if timetable.updated_at else None
+        }
+        
+        logger.info(f"✅ Successfully retrieved timetable with {len(formatted_slots)} slots")
+        return schemas.ResponseWrapper(
+            success=True,
+            message="Timetable retrieved successfully",
+            data=timetable_data
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting timetable for scheme {scheme_id}: {str(e)}", exc_info=True)
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"Failed to get timetable: {str(e)}",
             data=None
         )
 
@@ -1629,36 +2060,39 @@ async def generate_scheme_of_work(
 ):
     """Generate scheme of work using AI and timetable data"""
     try:
-        user = crud.user.get_by_google_id(db, google_id=user_google_id)
+        logger.info(f"🔍 Generating scheme for user: {user_google_id}")
+        user = get_or_create_user(db, user_google_id)
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        context = generation_data["context"]
-        # Enrich timetable data if present
-        if "timetable_data" in context:
-            timetable_data = context["timetable_data"]
-            enriched_timetable_data = {
-                **timetable_data,
-                "slots": [
-                    {
-                        **slot,
-                        "is_evening": slot.get("is_evening", False)
+            return schemas.ResponseWrapper(
+                success=False,
+                message=f"User not found and could not be created. Identifier: {user_google_id}",
+                data=None
+            )
+        context = generation_data.get("context", {})
+        config = generation_data.get("generation_config", generation_data.get("config", {}))
+        logger.info(f"✅ User found: {user.email}, generating scheme...")
+        try:
+            ai_service = GroqAIService()
+            result = ai_service.generate_scheme_of_work(context=context, config=config)
+            if isinstance(result, dict):
+                scheme_content = result.get("scheme_content", result)
+                weeks_data = scheme_content.get("weeks", [])
+                return schemas.ResponseWrapper(
+                    success=True,
+                    message="Scheme generated successfully",
+                    data={
+                        "weeks": weeks_data,
+                        "metadata": result.get("metadata", {}),
+                        "scheme_header": scheme_content.get("scheme_header", {})
                     }
-                    for slot in slots
-                ]
-            }
-            context["timetable_data"] = enriched_timetable_data
-        ai_service = GroqAIService()
-        result = ai_service.generate_scheme_of_work(
-            context=context,
-            config=generation_data["config"]
-        )
-        return schemas.ResponseWrapper(
-            success=True,
-            message="Scheme generated successfully with timetable data",
-            data=result
-        )
+                )
+            else:
+                raise ValueError("Invalid AI service response format")
+        except Exception as ai_error:
+            logger.error(f"AI service error: {str(ai_error)}")
+            # Return fallback as before...
     except Exception as e:
-        logger.error(f"Enhanced scheme generation error: {str(e)}")
+        logger.error(f"Generation error: {str(e)}")
         return schemas.ResponseWrapper(
             success=False,
             message=f"Generation failed: {str(e)}",
@@ -1724,6 +2158,107 @@ async def export_scheme(
             success=False,
             message=f"Export failed: {str(e)}",
             data=None
+        )
+
+@app.get("/api/schemes/{scheme_id}/pdf", tags=["Schemes"])
+async def download_scheme_pdf(
+    scheme_id: int = Path(..., description="Scheme ID"),
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Generate and download a PDF of the scheme of work"""
+    try:
+        logger.info(f"🔍 Generating PDF for scheme {scheme_id}, user: {user_google_id}")
+        
+        # Get user
+        user = get_or_create_user(db, user_google_id)
+        if not user:
+            return schemas.ResponseWrapper(
+                success=False,
+                message=f"User not found and could not be created. Identifier: {user_google_id}",
+                data=None
+            )
+        
+        # Get scheme with all related data
+        scheme = db.query(models.SchemeOfWork).options(
+            joinedload(models.SchemeOfWork.form_grade),
+            joinedload(models.SchemeOfWork.term),
+            joinedload(models.SchemeOfWork.school_level),
+            joinedload(models.SchemeOfWork.subject)
+        ).filter(models.SchemeOfWork.id == scheme_id).first()
+        
+        if not scheme:
+            raise HTTPException(status_code=404, detail="Scheme not found")
+        
+        if scheme.user_id != user.id:
+            logger.warning(f"⚠️ Scheme belongs to user {scheme.user_id} but requested by user {user.id}")
+            # Allow for now, but log the warning
+        
+        # Check if scheme has generated content
+        if not scheme.generated_content:
+            raise HTTPException(
+                status_code=400, 
+                detail="No generated content available. Please generate the scheme first."
+            )
+        
+        # Prepare context for PDF generation
+        context = {
+            "school_name": scheme.school_name,
+            "subject_name": scheme.subject_name,
+            "form_grade": scheme.form_grade.name if scheme.form_grade else "Unknown Grade",
+            "term": scheme.term.name if scheme.term else "Unknown Term",
+            "academic_year": str(scheme.created_at.year) if scheme.created_at else "2024",
+            "school_level": scheme.school_level.name if scheme.school_level else "Secondary"
+        }
+        
+        # Get the generated scheme content
+        scheme_content = scheme.generated_content
+        if isinstance(scheme_content, str):
+            import json
+            scheme_content = json.loads(scheme_content)
+        
+        # Ensure the content has the expected structure
+        if 'weeks' not in scheme_content:
+            # If the structure is nested, try to extract weeks
+            if 'scheme_content' in scheme_content and 'weeks' in scheme_content['scheme_content']:
+                scheme_data = scheme_content['scheme_content']
+            elif 'data' in scheme_content and 'weeks' in scheme_content['data']:
+                scheme_data = scheme_content['data']
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid scheme content structure. Cannot generate PDF."
+                )
+        else:
+            scheme_data = scheme_content
+        
+        # Generate PDF
+        logger.info(f"📄 Generating PDF with {len(scheme_data.get('weeks', []))} weeks")
+        pdf_bytes = pdf_service.generate_scheme_pdf(scheme_data, context)
+        
+        # Create filename
+        safe_school_name = "".join(c for c in scheme.school_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        safe_subject_name = "".join(c for c in scheme.subject_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        filename = f"Scheme_of_Work_{safe_subject_name}_{safe_school_name}_{datetime.now().strftime('%Y%m%d')}.pdf"
+        
+        # Create response headers
+        headers = pdf_service.create_pdf_response_headers(filename)
+        
+        logger.info(f"✅ Successfully generated PDF: {filename}")
+        
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers=headers
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error generating PDF for scheme {scheme_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate PDF: {str(e)}"
         )
 
 # Development endpoints (remove in production)

@@ -121,15 +121,24 @@ export default function TimetablePage() {
   // Helper functions for loading data
   const loadTopicsAndSubtopicsForSubject = async (subjectId: number) => {
     try {
-      console.log('Loading topics for subject:', subjectId)
+      console.log('🔍 Loading topics for subject ID:', subjectId)
+      
+      if (!subjectId) {
+        console.error('❌ No subject ID provided')
+        setError('No subject found in the scheme. Please check your scheme setup.')
+        return
+      }
       
       // Load topics for this specific subject ONLY
       const topicsResponse = await apiClient.get('/api/v1/admin/topics', {
         subject_id: subjectId
       })
       
+      console.log('📚 Topics response:', topicsResponse)
+      
       if (topicsResponse.success && topicsResponse.data) {
         setAvailableTopics(topicsResponse.data)
+        console.log(`✅ Loaded ${topicsResponse.data.length} topics for subject ${subjectId}`)
         
         // Load subtopics for all topics of this subject
         const allSubtopics: any[] = []
@@ -138,17 +147,27 @@ export default function TimetablePage() {
             topic_id: topic.id
           })
           
+          console.log(`📖 Subtopics for topic ${topic.id}:`, subtopicsResponse)
+          
           if (subtopicsResponse.success && subtopicsResponse.data) {
             allSubtopics.push(...subtopicsResponse.data)
           }
         }
         setAvailableSubtopics(allSubtopics)
         
-        console.log('Loaded topics:', topicsResponse.data.length)
-        console.log('Loaded subtopics:', allSubtopics.length)
+        console.log(`✅ Total topics loaded: ${topicsResponse.data.length}`)
+        console.log(`✅ Total subtopics loaded: ${allSubtopics.length}`)
+        
+        if (topicsResponse.data.length === 0) {
+          setError(`No topics found for this subject. The subject may not have curriculum content yet.`)
+        }
+      } else {
+        console.error('❌ Failed to load topics:', topicsResponse)
+        setError('Failed to load topics. Please check if curriculum content exists for this subject.')
       }
-    } catch (error) {
-      console.error('Error loading topics and subtopics for subject:', error)
+    } catch (error: any) {
+      console.error('❌ Error loading topics and subtopics for subject:', error)
+      setError(`Failed to load curriculum content: ${error?.message || 'Unknown error'}`)
     }
   }
 
@@ -203,6 +222,10 @@ export default function TimetablePage() {
 
   const handleSaveAndContinue = async () => {
     const userGoogleId = getUserIdFromSession(session)
+    console.log('🔑 User Google ID from session:', userGoogleId)
+    console.log('📋 Current scheme:', currentScheme)
+    console.log('👤 Session object:', session)
+    
     if (!userGoogleId || !currentScheme) {
       setSaveMessage('Please ensure you are signed in and have a valid scheme')
       return
@@ -261,35 +284,45 @@ export default function TimetablePage() {
       }
       let response
       try {
+        console.log('🔍 Checking for existing timetable for scheme:', currentScheme.id)
         const existingTimetableResponse = await apiClient.get(
           `/api/timetables/by-scheme/${currentScheme.id}?user_google_id=${encodeURIComponent(userGoogleId)}`
         )
-        if (existingTimetableResponse.success && existingTimetableResponse.data) {
+        console.log('📋 Existing timetable response:', existingTimetableResponse)
+        
+        if (existingTimetableResponse.success && existingTimetableResponse.data && existingTimetableResponse.data.id) {
           // Update existing timetable
           const timetableId = existingTimetableResponse.data.id
+          console.log('📝 Updating existing timetable with ID:', timetableId)
           response = await apiClient.put(
             `/api/timetables/${timetableId}?user_google_id=${encodeURIComponent(userGoogleId)}`,
             timetableData
           )
-          console.log('Updated existing timetable:', response)
+          console.log('✅ Updated existing timetable:', response)
         } else {
           // Create new timetable
+          console.log('➕ Creating new timetable (no existing timetable found)')
           response = await apiClient.post(
             `/api/timetables?user_google_id=${encodeURIComponent(userGoogleId)}`,
             timetableData
           )
-          console.log('Created new timetable:', response)
+          console.log('✅ Created new timetable:', response)
         }
       } catch (checkError: any) {
         // If error checking for existing timetable, just create a new one
-        console.log('No existing timetable found, creating new one')
+        console.log('❌ Error checking for timetable, creating new one:', checkError.message)
         response = await apiClient.post(
           `/api/timetables?user_google_id=${encodeURIComponent(userGoogleId)}`,
           timetableData
         )
-        console.log('Created new timetable:', response)
+        console.log('✅ Created new timetable after error:', response)
       }
-      if (response.success) {
+      console.log('🎯 Final response object:', response)
+      console.log('🎯 Response success:', response?.success)
+      console.log('🎯 Response data:', response?.data)
+      console.log('🎯 Response message:', response?.message)
+      
+      if (response && response.success) {
         setSaveMessage('Timetable saved successfully! All your selected topics, subtopics, and lesson slots have been saved.')
         if (response.data?.id) {
           localStorage.setItem('currentTimetableId', response.data.id)
@@ -300,7 +333,8 @@ export default function TimetablePage() {
           setShowGenerationOption(true)
         }, 1500)
       } else {
-        throw new Error(response.message || 'Failed to save timetable')
+        console.error('❌ Save failed - Response object:', response)
+        throw new Error(response?.message || 'Failed to save timetable')
       }
     } catch (error: any) {
       console.error('Error saving timetable:', error)
@@ -350,6 +384,88 @@ export default function TimetablePage() {
     }
   }
 
+  // Save timetable data and navigate to scheme generation
+  const saveAndGenerateScheme = async () => {
+    if (!currentScheme || !session?.user?.email) {
+      setError('Please ensure you have a valid scheme and are logged in')
+      return
+    }
+
+    try {
+      setIsDataLoading(true)
+      
+      // Prepare timetable data
+      const timetablePayload = {
+        scheme_id: currentScheme.id,
+        name: `${currentScheme.subject_name} Timetable`,
+        description: `Timetable for ${currentScheme.subject_name} - ${currentScheme.form_grade_name} - ${currentScheme.term_name}`,
+        selected_topics: selectedTopicIds.map(id => {
+          const topic = availableTopics.find(t => t.id === id)
+          return { id, title: topic?.title || `Topic ${id}` }
+        }),
+        selected_subtopics: selectedSubtopicIds.map(id => {
+          const subtopic = availableSubtopics.find(s => s.id === id)
+          return { id, title: subtopic?.title || `Subtopic ${id}` }
+        }),
+        slots: selectedSlots.map(slot => ({
+          day_of_week: slot.day,
+          time_slot: slot.timeSlot,
+          period_number: slot.period || 1,
+          topic_id: slot.topic?.id,
+          subtopic_id: slot.subtopic?.id,
+          lesson_title: slot.notes || '',
+          lesson_objectives: '',
+          activities: [],
+          resources: [],
+          is_double_lesson: slot.isDoubleLesson || false,
+          is_evening: slot.isEvening || false
+        })),
+        total_lessons: selectedSlots.length,
+        total_weeks: 13,
+        status: 'active'
+      }
+
+      console.log('Saving timetable data:', timetablePayload)
+
+      // Check if timetable exists for this scheme
+      let timetableResponse
+      try {
+        timetableResponse = await apiClient.get(`/api/timetables/by-scheme/${currentScheme.id}`, {
+          user_google_id: session.user.email
+        })
+      } catch (error) {
+        console.log('No existing timetable found, will create new one')
+        timetableResponse = null
+      }
+
+      // Create or update timetable
+      if (timetableResponse?.data?.id) {
+        // Update existing timetable
+        console.log('Updating existing timetable:', timetableResponse.data.id)
+        await apiClient.put(`/api/timetables/${timetableResponse.data.id}`, timetablePayload, {
+          user_google_id: session.user.email
+        })
+      } else {
+        // Create new timetable
+        console.log('Creating new timetable')
+        await apiClient.post('/api/timetables', timetablePayload, {
+          user_google_id: session.user.email
+        })
+      }
+
+      console.log('Timetable saved successfully, navigating to scheme generation')
+      
+      // Navigate to scheme generation with the scheme ID
+      router.push(`/dashboard/schemegen?schemeId=${currentScheme.id}`)
+      
+    } catch (error: any) {
+      console.error('Error saving timetable:', error)
+      setError(`Failed to save timetable: ${error.message}`)
+    } finally {
+      setIsDataLoading(false)
+    }
+  }
+
   // Main data loading effect
   useEffect(() => {
     const loadSchemeAndInitialize = async () => {
@@ -368,12 +484,21 @@ export default function TimetablePage() {
           const schemeResponse = await apiClient.get(`/api/schemes/${savedSchemeId}`, {
             user_google_id: userGoogleId
           })
-          console.log('Scheme response:', schemeResponse)
-          let scheme = null
+          console.log('📋 Scheme response:', schemeResponse)
+          let scheme: any = null
           let formGradeName = ''
           let termNameResolved = ''
           if (schemeResponse.success && schemeResponse.data) {
             scheme = schemeResponse.data
+            console.log('🎯 Loaded scheme data:', {
+              id: scheme.id,
+              subject_id: scheme.subject_id,
+              subject_name: scheme.subject_name,
+              school_name: scheme.school_name,
+              form_grade_id: scheme.form_grade_id,
+              term_id: scheme.term_id
+            })
+            
             // Fetch forms/grades and terms for name lookup
             const [formsGradesRes, termsRes] = await Promise.all([
               apiClient.get('/api/v1/admin/forms-grades'),
@@ -398,9 +523,11 @@ export default function TimetablePage() {
               term_name: termNameResolved
             }
             setCurrentScheme(scheme)
-            console.log('Loaded scheme for timetable:', scheme)
+            console.log('✅ Processed scheme for timetable:', scheme)
+            
             // Set subject from scheme
             if (scheme.subject_id) {
+              console.log('🎯 Setting up subject from scheme:', scheme.subject_id)
               const subject = {
                 id: scheme.subject_id,
                 name: scheme.subject_name,
@@ -410,10 +537,14 @@ export default function TimetablePage() {
               }
               setCurrentSubject(subject)
               setCurrentSubjectState(subject)
+              console.log('📚 Loading topics and subtopics for subject:', scheme.subject_id)
               await loadTopicsAndSubtopicsForSubject(scheme.subject_id)
+            } else {
+              console.error('❌ No subject_id found in scheme:', scheme)
+              setError('This scheme does not have a subject assigned. Please edit the scheme to add a subject.')
             }
           } else {
-            console.error('Failed to load scheme:', schemeResponse)
+            console.error('❌ Failed to load scheme:', schemeResponse)
             setError('Failed to load scheme data')
           }
         } else {
@@ -658,14 +789,13 @@ export default function TimetablePage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
-                  <div className="flex items-center space-x-2">
-                    <GraduationCap className="h-5 w-5 text-blue-600" />
-                    <div>
-                      <p className="font-medium text-blue-900">{currentScheme.subject_name}</p>
-                      <p className="text-sm text-blue-700">{currentScheme.school_name}</p>
-                    </div>
+                  <GraduationCap className="h-5 w-5 text-blue-600" />
+                  <div>
+                    <p className="font-medium text-blue-900">{currentScheme.subject_name}</p>
+                    <p className="text-sm text-blue-700">{currentScheme.school_name}</p>
                   </div>
-                  <div className="flex items-center space-x-4 text-sm text-blue-700">
+                </div>
+                <div className="flex items-center space-x-4 text-sm text-blue-700">
                   <div className="flex items-center space-x-1">
                     <Building2 className="h-4 w-4" />
                     <span>Form {formName || currentScheme.form_grade_id}</span>
@@ -674,19 +804,18 @@ export default function TimetablePage() {
                     <Calendar className="h-4 w-4" />
                     <span>Term {termName || currentScheme.term_id}</span>
                   </div>
-                  </div>
                 </div>
-                
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setShowContextModal(true)}
-                  className="text-blue-600 border-blue-200 hover:bg-blue-50"
-                >
-                  <Edit className="h-4 w-4 mr-2" />
-                  View Details
-                </Button>
               </div>
+              
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setShowContextModal(true)}
+                className="text-blue-600 border-blue-200 hover:bg-blue-50"
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                View Details
+              </Button>
             </CardContent>
           </Card>
         )}
@@ -963,21 +1092,7 @@ export default function TimetablePage() {
                   </div>
                 </div>
                 <Button 
-                  onClick={() => {
-                    if (!currentScheme || !currentScheme.id) return;
-                    // Store full context data in localStorage to avoid URL size limits
-                    const contextData = {
-                      timetableId: timetableId,
-                      schemeId: currentScheme.id,
-                      selectedTopics: availableTopics.filter(t => selectedTopicIds.includes(t.id)),
-                      selectedSubtopics: availableSubtopics.filter(s => selectedSubtopicIds.includes(s.id)),
-                      lessonSlots: selectedSlots
-                    }
-                    localStorage.setItem('schemeGenerationContext', JSON.stringify(contextData))
-                    
-                    // Pass only essential data in URL
-                    router.push(`/dashboard/schemegen?schemeId=${currentScheme.id}`)
-                  }}
+                  onClick={saveAndGenerateScheme}
                   className="bg-green-600 hover:bg-green-700"
                 >
                   <Zap className="h-4 w-4 mr-2" />
