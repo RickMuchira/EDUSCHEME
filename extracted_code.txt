@@ -1,0 +1,4453 @@
+]633;E;for f in frontend/src/app/dashboard/timetable/page.tsx backend/main.py backend/models.py backend/schemas.py frontend/src/lib/apiClient.ts;2423a403-6f04-423a-9a25-d85184d00b78]633;C### frontend/src/app/dashboard/timetable/page.tsx ###
+"use client"
+
+import { useState, useEffect, useCallback } from 'react'
+import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { 
+  Calendar, 
+  Clock, 
+  BookOpen, 
+  Brain, 
+  Save, 
+  Download, 
+  Share2,
+  Undo2,
+  RotateCcw,
+  Settings,
+  School,
+  GraduationCap,
+  FileText,
+  ChevronRight,
+  ChevronDown,
+  Target,
+  List,
+  Users,
+  Building2,
+  Edit,
+  CheckCircle2,
+  Sparkles,
+  Info,
+  AlertTriangle,
+  Database,
+  Trash2,
+  FolderOpen,
+  Play,
+  Loader2,
+  RefreshCw,
+  Zap
+} from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+
+import TimetableGrid from './components/TimetableGrid'
+import AnalysisPanel from './components/AnalysisPanel'
+import AITipsPanel from './components/AITipsPanel'
+import TimetableInstructions from './components/TimetableInstructions'
+import ContentSelectionPanel from './components/ContentSelectionPanel'
+import { useTimetableState } from './hooks/useTimetableState'
+import { useTimetableAnalytics } from './hooks/useTimetableAnalytics'
+import { TimetableData, LessonSlot } from './types/timetable'
+import apiClient from '@/lib/apiClient'
+
+// Helper to get user id from session
+function getUserIdFromSession(session: any): string | undefined {
+  if (!session?.user) return undefined
+  return session.user.id || session.user.sub || session.user.email
+}
+
+export default function TimetablePage() {
+  const { data: session } = useSession()
+  const router = useRouter()
+  
+  // Scheme and data state
+  const [currentScheme, setCurrentScheme] = useState<any>(null)
+  const [isLoadingScheme, setIsLoadingScheme] = useState(true)
+  const [schemeData, setSchemeData] = useState<any>(null)
+  const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
+  const [currentSubject, setCurrentSubject] = useState<any>(null)
+  const [availableTopics, setAvailableTopics] = useState<any[]>([])
+  const [availableSubtopics, setAvailableSubtopics] = useState<any[]>([])
+  const [selectedTopicIds, setSelectedTopicIds] = useState<number[]>([])
+  const [selectedSubtopicIds, setSelectedSubtopicIds] = useState<number[]>([])
+  const [isDataLoading, setIsDataLoading] = useState(true)
+  const [isTopicsLoading, setIsTopicsLoading] = useState(false)
+  const [isSubtopicsLoading, setIsSubtopicsLoading] = useState(false)
+  
+  // UI state
+  const [showContextModal, setShowContextModal] = useState(false)
+  const [schoolLevelName, setSchoolLevelName] = useState<string>('')
+  const [formName, setFormName] = useState<string>('')
+  const [termName, setTermName] = useState<string>('')
+  const [showInstructions, setShowInstructions] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showGenerationOption, setShowGenerationOption] = useState(false)
+  
+  // Timetable state hook
+  const {
+    timetableData,
+    selectedSlots,
+    currentSubject: currentSubjectState,
+    selectedTopics,
+    selectedSubtopics,
+    isAutoSaving,
+    lastSaveTime,
+    timetableId,
+    setCurrentSubject: setCurrentSubjectState,
+    addSlot,
+    removeSlot,
+    createDoubleLesson,
+    clearAll,
+    undo,
+    saveToStorage,
+    loadFromStorage,
+    loadTimetable,
+    deleteTimetable,
+    canUndo,
+    updateSelectedTopics,
+    updateSelectedSubtopics
+  } = useTimetableState()
+
+  // Analytics hook
+  const {
+    analytics,
+    aiTips,
+    workloadLevel,
+    conflictWarnings,
+    updateAnalytics
+  } = useTimetableAnalytics(selectedSlots)
+
+  // Helper functions for loading data
+  const loadTopicsAndSubtopicsForSubject = async (subjectId: number) => {
+    setIsTopicsLoading(true)
+    setIsSubtopicsLoading(true)
+    try {
+      console.log('🔍 Loading topics for subject ID:', subjectId)
+      if (!subjectId) {
+        console.error('❌ No subject ID provided')
+        setError('No subject found in the scheme. Please check your scheme setup.')
+        setIsTopicsLoading(false)
+        setIsSubtopicsLoading(false)
+        return
+      }
+      // Load topics for this specific subject ONLY
+      const topicsResponse = await apiClient.get('/api/v1/admin/topics', {
+        subject_id: subjectId
+      })
+      console.log('📚 Topics response:', topicsResponse)
+      if (topicsResponse.success && topicsResponse.data) {
+        setAvailableTopics(topicsResponse.data)
+        if (topicsResponse.data.length === 0) {
+          setError(`No topics found for this subject. The subject may not have curriculum content yet.`)
+        }
+        // Load subtopics for all topics of this subject
+        const allSubtopics: any[] = []
+        for (const topic of topicsResponse.data) {
+          try {
+            const subtopicsResponse = await apiClient.get('/api/v1/admin/subtopics', {
+              topic_id: topic.id
+            })
+            console.log(`📖 Subtopics for topic ${topic.id}:`, subtopicsResponse)
+            if (subtopicsResponse.success && subtopicsResponse.data) {
+              allSubtopics.push(...subtopicsResponse.data)
+            } else {
+              console.warn(`No subtopics found for topic ${topic.id}`)
+            }
+          } catch (subErr) {
+            console.error(`Error fetching subtopics for topic ${topic.id}:`, subErr)
+          }
+        }
+        setAvailableSubtopics(allSubtopics)
+        if (allSubtopics.length === 0) {
+          setError('No subtopics found for any topic in this subject.')
+        }
+        console.log(`✅ Total topics loaded: ${topicsResponse.data.length}`)
+        console.log(`✅ Total subtopics loaded: ${allSubtopics.length}`)
+      } else {
+        console.error('❌ Failed to load topics:', topicsResponse)
+        setError('Failed to load topics. Please check if curriculum content exists for this subject.')
+      }
+    } catch (error: any) {
+      console.error('❌ Error loading topics and subtopics for subject:', error)
+      setError(`Failed to load curriculum content: ${error?.message || 'Unknown error'}`)
+    } finally {
+      setIsTopicsLoading(false)
+      setIsSubtopicsLoading(false)
+    }
+  }
+
+  const loadSchoolLevels = async () => {
+    try {
+      const response = await apiClient.get('/api/v1/admin/school-levels')
+      if (response.success && response.data) {
+        console.log('Loaded school levels:', response.data.length)
+      }
+    } catch (error) {
+      console.error('Error loading school levels:', error)
+    }
+  }
+
+  const loadFormsGrades = async () => {
+    try {
+      const response = await apiClient.get('/api/v1/admin/forms-grades')
+      if (response.success && response.data) {
+        console.log('Loaded forms/grades:', response.data.length)
+      }
+    } catch (error) {
+      console.error('Error loading forms/grades:', error)
+    }
+  }
+
+  const loadTerms = async () => {
+    try {
+      const response = await apiClient.get('/api/v1/admin/terms')
+      if (response.success && response.data) {
+        console.log('Loaded terms:', response.data.length)
+      }
+    } catch (error) {
+      console.error('Error loading terms:', error)
+    }
+  }
+
+  const loadSubjects = async () => {
+    try {
+      const response = await apiClient.get('/api/v1/admin/subjects')
+      if (response.success && response.data) {
+        setAvailableSubjects(response.data)
+        console.log('Loaded subjects:', response.data.length)
+      }
+    } catch (error) {
+      console.error('Error loading subjects:', error)
+    }
+  }
+
+  // Save & Continue handler (move here to fix scoping)
+  const [isSavingTimetable, setIsSavingTimetable] = useState(false)
+  const [saveMessage, setSaveMessage] = useState<string>('')
+
+  const handleSaveAndContinue = async () => {
+    const userGoogleId = getUserIdFromSession(session)
+    console.log('🔑 User Google ID from session:', userGoogleId)
+    console.log('📋 Current scheme:', currentScheme)
+    console.log('👤 Session object:', session)
+    
+    if (!userGoogleId || !currentScheme) {
+      setSaveMessage('Please ensure you are signed in and have a valid scheme')
+      return
+    }
+    if (selectedTopicIds.length === 0 && selectedSubtopicIds.length === 0) {
+      setSaveMessage('Please select at least one topic or subtopic before saving')
+      return
+    }
+    setIsSavingTimetable(true)
+    setSaveMessage('')
+    try {
+      const timetableData = {
+        scheme_id: currentScheme.id,
+        name: `${currentScheme.subject_name} Timetable`,
+        description: `Comprehensive timetable for ${currentScheme.subject_name} - ${currentScheme.school_name}`,
+        selected_topics: availableTopics.filter(topic => 
+          selectedTopicIds.includes(topic.id)
+        ).map(topic => ({
+          id: topic.id,
+          title: topic.name,
+          description: topic.description,
+          duration_weeks: topic.duration_weeks,
+          selected_at: new Date().toISOString()
+        })),
+        selected_subtopics: availableSubtopics.filter(subtopic => 
+          selectedSubtopicIds.includes(subtopic.id)
+        ).map(subtopic => ({
+          id: subtopic.id,
+          title: subtopic.name,
+          content: subtopic.description,
+          duration_lessons: subtopic.duration_lessons,
+          topic_id: subtopic.topic_id,
+          selected_at: new Date().toISOString()
+        })),
+        slots: selectedSlots.map(slot => ({
+          day_of_week: slot.day,
+          time_slot: slot.timeSlot,
+          period_number: slot.period,
+          topic_id: slot.topic?.id || null,
+          subtopic_id: slot.subtopic?.id || null,
+          lesson_title: slot.notes || '',
+          is_double_lesson: slot.isDoubleLesson || false,
+          is_evening: slot.isEvening || false
+        })),
+        metadata: {
+          total_topics_selected: selectedTopicIds.length,
+          total_subtopics_selected: selectedSubtopicIds.length,
+          total_lessons_scheduled: selectedSlots.length,
+          scheme_metadata: {
+            school_name: currentScheme.school_name,
+            subject_name: currentScheme.subject_name,
+            form_grade_id: currentScheme.form_grade_id,
+            term_id: currentScheme.term_id
+          }
+        }
+      }
+      let response
+      try {
+        console.log('🔍 Checking for existing timetable for scheme:', currentScheme.id)
+        const existingTimetableResponse = await apiClient.get(
+          `/api/timetables/by-scheme/${currentScheme.id}?user_google_id=${encodeURIComponent(userGoogleId)}`
+        )
+        console.log('📋 Existing timetable response:', existingTimetableResponse)
+        
+        if (existingTimetableResponse.success && existingTimetableResponse.data && existingTimetableResponse.data.id) {
+          // Update existing timetable
+          const timetableId = existingTimetableResponse.data.id
+          console.log('📝 Updating existing timetable with ID:', timetableId)
+          response = await apiClient.put(
+            `/api/timetables/${timetableId}?user_google_id=${encodeURIComponent(userGoogleId)}`,
+            timetableData
+          )
+          console.log('✅ Updated existing timetable:', response)
+        } else {
+          // Create new timetable
+          console.log('➕ Creating new timetable (no existing timetable found)')
+          response = await apiClient.post(
+            `/api/timetables?user_google_id=${encodeURIComponent(userGoogleId)}`,
+            timetableData
+          )
+          console.log('✅ Created new timetable:', response)
+        }
+      } catch (checkError: any) {
+        // If error checking for existing timetable, just create a new one
+        console.log('❌ Error checking for timetable, creating new one:', checkError.message)
+        response = await apiClient.post(
+          `/api/timetables?user_google_id=${encodeURIComponent(userGoogleId)}`,
+          timetableData
+        )
+        console.log('✅ Created new timetable after error:', response)
+      }
+      console.log('🎯 Final response object:', response)
+      console.log('🎯 Response success:', response?.success)
+      console.log('🎯 Response data:', response?.data)
+      console.log('🎯 Response message:', response?.message)
+      
+      if (response && response.success) {
+        setSaveMessage('Timetable saved successfully! All your selected topics, subtopics, and lesson slots have been saved.')
+        if (response.data?.id) {
+          localStorage.setItem('currentTimetableId', response.data.id)
+        }
+        setTimeout(() => setSaveMessage(''), 5000)
+        // Show scheme generation option after 1.5 seconds
+        setTimeout(() => {
+          setShowGenerationOption(true)
+        }, 1500)
+      } else {
+        console.error('❌ Save failed - Response object:', response)
+        throw new Error(response?.message || 'Failed to save timetable')
+      }
+    } catch (error: any) {
+      console.error('Error saving timetable:', error)
+      setSaveMessage(`Error saving timetable: ${error.message}`)
+    } finally {
+      setIsSavingTimetable(false)
+    }
+  }
+
+  // Load existing timetable data
+  const loadExistingTimetable = async (schemeId: number) => {
+    const userGoogleId = getUserIdFromSession(session)
+    if (!userGoogleId) return
+    try {
+      const response = await apiClient.get(
+        `/api/timetables/by-scheme/${schemeId}?user_google_id=${encodeURIComponent(userGoogleId)}`
+      )
+      // Handle the case where no timetable exists (this is normal, not an error)
+      if (!response.success) {
+        console.log('No existing timetable found for this scheme - this is normal for new schemes')
+        return
+      }
+      if (response.data) {
+        const timetableData = response.data
+        // Restore selected topics
+        if (timetableData.selected_topics && Array.isArray(timetableData.selected_topics)) {
+          const topicIds = timetableData.selected_topics.map((t: any) => t.id)
+          setSelectedTopicIds(topicIds)
+          updateSelectedTopics(timetableData.selected_topics)
+        }
+        // Restore selected subtopics
+        if (timetableData.selected_subtopics && Array.isArray(timetableData.selected_subtopics)) {
+          const subtopicIds = timetableData.selected_subtopics.map((s: any) => s.id)
+          setSelectedSubtopicIds(subtopicIds)
+          updateSelectedSubtopics(timetableData.selected_subtopics)
+        }
+        localStorage.setItem('currentTimetableId', timetableData.id)
+        console.log('Successfully restored timetable data')
+      }
+    } catch (error: any) {
+      // Only log actual errors, not "not found" cases
+      if (!error.message?.includes('Not Found')) {
+        console.error('Error loading existing timetable:', error)
+      } else {
+        console.log('No existing timetable found (this is normal for new schemes)')
+      }
+    }
+  }
+
+  // Save timetable data and navigate to scheme generation
+  const saveAndGenerateScheme = async () => {
+    if (!currentScheme || !session?.user?.email) {
+      setError('Please ensure you have a valid scheme and are logged in')
+      return
+    }
+
+    try {
+      setIsDataLoading(true)
+      
+      // Prepare timetable data
+      const timetablePayload = {
+        scheme_id: currentScheme.id,
+        name: `${currentScheme.subject_name} Timetable`,
+        description: `Timetable for ${currentScheme.subject_name} - ${currentScheme.form_grade_name} - ${currentScheme.term_name}`,
+        selected_topics: selectedTopicIds.map(id => {
+          const topic = availableTopics.find(t => t.id === id)
+          return { id, title: topic?.title || `Topic ${id}` }
+        }),
+        selected_subtopics: selectedSubtopicIds.map(id => {
+          const subtopic = availableSubtopics.find(s => s.id === id)
+          return { id, title: subtopic?.title || `Subtopic ${id}` }
+        }),
+        slots: selectedSlots.map(slot => ({
+          day_of_week: slot.day,
+          time_slot: slot.timeSlot,
+          period_number: slot.period || 1,
+          topic_id: slot.topic?.id,
+          subtopic_id: slot.subtopic?.id,
+          lesson_title: slot.notes || '',
+          lesson_objectives: '',
+          activities: [],
+          resources: [],
+          is_double_lesson: slot.isDoubleLesson || false,
+          is_evening: slot.isEvening || false
+        })),
+        total_lessons: selectedSlots.length,
+        total_weeks: 13,
+        status: 'active'
+      }
+
+      console.log('Saving timetable data:', timetablePayload)
+
+      // Check if timetable exists for this scheme
+      let timetableResponse
+      try {
+        timetableResponse = await apiClient.get(`/api/timetables/by-scheme/${currentScheme.id}`, {
+          user_google_id: session.user.email
+        })
+      } catch (error) {
+        console.log('No existing timetable found, will create new one')
+        timetableResponse = null
+      }
+
+      // Create or update timetable
+      if (timetableResponse?.data?.id) {
+        // Update existing timetable
+        console.log('Updating existing timetable:', timetableResponse.data.id)
+        await apiClient.put(`/api/timetables/${timetableResponse.data.id}`, timetablePayload, {
+          user_google_id: session.user.email
+        })
+      } else {
+        // Create new timetable
+        console.log('Creating new timetable')
+        await apiClient.post('/api/timetables', timetablePayload, {
+          user_google_id: session.user.email
+        })
+      }
+
+      console.log('Timetable saved successfully, navigating to scheme generation')
+      
+      // Navigate to scheme generation with the scheme ID
+      router.push(`/dashboard/schemegen?schemeId=${currentScheme.id}`)
+      
+    } catch (error: any) {
+      console.error('Error saving timetable:', error)
+      setError(`Failed to save timetable: ${error.message}`)
+    } finally {
+      setIsDataLoading(false)
+    }
+  }
+
+  // Main data loading effect
+  useEffect(() => {
+    const loadSchemeAndInitialize = async () => {
+      const userGoogleId = getUserIdFromSession(session)
+      if (!userGoogleId) return
+
+      setIsLoadingScheme(true)
+      setIsDataLoading(true)
+      setError(null)
+
+      try {
+        const savedSchemeId = localStorage.getItem('currentSchemeId')
+        if (!savedSchemeId) {
+          console.log('No scheme found in localStorage, redirecting to create one')
+          setError('No scheme found. Please create a scheme first.')
+          setTimeout(() => {
+            router.push('/dashboard/scheme-of-work')
+          }, 3000)
+          return
+        }
+
+        console.log('Loading scheme with ID:', savedSchemeId)
+        
+        // Load scheme from database with comprehensive error handling
+        let scheme: any = null
+        try {
+          const schemeResponse = await apiClient.get(`/api/schemes/${savedSchemeId}`, {
+            user_google_id: userGoogleId
+          })
+          
+          console.log('📋 Full scheme response:', schemeResponse)
+          
+          // Handle different response formats and errors
+          if (!schemeResponse) {
+            throw new Error('No response received from server')
+          }
+          
+          // Check for API errors (422, 404, etc.)
+          if (schemeResponse.status === 422) {
+            throw new Error('This scheme does not have a subject assigned. Please edit the scheme to add a subject.')
+          }
+          
+          if (schemeResponse.status === 404) {
+            throw new Error('Scheme not found. It may have been deleted.')
+          }
+          
+          if (schemeResponse.detail && schemeResponse.detail.includes('subject_id')) {
+            throw new Error('This scheme does not have a subject assigned. Please edit the scheme to add a subject.')
+          }
+          
+          // Extract scheme data from different response formats
+          if (schemeResponse.success === true && schemeResponse.data) {
+            scheme = schemeResponse.data
+          } else if (schemeResponse.id && typeof schemeResponse.id === 'number') {
+            scheme = schemeResponse
+          } else if (schemeResponse.success === false) {
+            throw new Error(schemeResponse.message || 'Failed to load scheme')
+          } else {
+            throw new Error('Invalid response format from server')
+          }
+          
+          // Validate scheme object
+          if (!scheme || typeof scheme !== 'object') {
+            throw new Error('Invalid scheme data received from server')
+          }
+          
+          // Check if scheme has required fields
+          if (!scheme.id) {
+            throw new Error('Scheme is missing ID')
+          }
+          
+          console.log('🔍 Detailed scheme validation:', {
+            scheme_id: scheme.id,
+            subject_id: scheme.subject_id,
+            subject_id_type: typeof scheme.subject_id,
+            subject_id_truthy: !!scheme.subject_id,
+            subject_name: scheme.subject_name,
+            all_keys: Object.keys(scheme)
+          })
+          
+          // Check for subject_id with multiple validation conditions
+          if (!scheme.subject_id || scheme.subject_id === 0 || scheme.subject_id === null || scheme.subject_id === undefined || scheme.subject_id === '') {
+            console.error('❌ Scheme subject_id validation failed:', {
+              scheme_id: scheme.id,
+              subject_id: scheme.subject_id,
+              type: typeof scheme.subject_id,
+              is_null: scheme.subject_id === null,
+              is_undefined: scheme.subject_id === undefined,
+              is_zero: scheme.subject_id === 0,
+              is_empty_string: scheme.subject_id === '',
+              subject_name: scheme.subject_name,
+              school_name: scheme.school_name
+            })
+            
+            // Clear invalid scheme from localStorage immediately
+            localStorage.removeItem('currentSchemeId')
+            localStorage.removeItem('schemeFormData')
+            
+            throw new Error('This scheme is incomplete (missing subject information). The scheme has been cleared. Please create a new scheme with proper subject selection.')
+          }
+          
+          console.log('🎯 Loaded scheme data:', {
+            id: scheme.id,
+            subject_id: scheme.subject_id,
+            subject_name: scheme.subject_name,
+            school_name: scheme.school_name,
+            form_grade_id: scheme.form_grade_id,
+            term_id: scheme.term_id
+          })
+          
+        } catch (apiError: any) {
+          console.error('🚨 API Error Details:', apiError)
+          
+          // Set the scheme ID for the edit button
+          setCurrentScheme({ id: savedSchemeId })
+          
+          // Determine error message
+          let errorMessage = 'Failed to load scheme data'
+          if (apiError.message) {
+            errorMessage = apiError.message
+          } else if (typeof apiError === 'string') {
+            errorMessage = apiError
+          }
+          
+          // If the error is about missing subject_id, clear the localStorage
+          // and suggest creating a new scheme
+          if (errorMessage.includes('subject') || errorMessage.includes('incomplete') || errorMessage.includes('missing subject information')) {
+            console.warn('🔧 Clearing invalid scheme from localStorage')
+            localStorage.removeItem('currentSchemeId')
+            localStorage.removeItem('schemeFormData')
+            
+            // Modify error message to be more helpful
+            errorMessage = 'The scheme is missing required subject information. Creating a new scheme is recommended.'
+            
+            // Clear the scheme ID so we don't show the edit button
+            setCurrentScheme(null)
+            
+            // Auto-redirect after a delay
+            setTimeout(() => {
+              router.push('/dashboard/scheme-of-work')
+            }, 5000)
+          }
+          
+          throw new Error(errorMessage)
+        }
+
+        // Fetch forms/grades and terms for name lookup
+        let formGradeName = ''
+        let termNameResolved = ''
+        
+        try {
+          const [formsGradesRes, termsRes] = await Promise.all([
+            apiClient.get('/api/v1/admin/forms-grades'),
+            apiClient.get('/api/v1/admin/terms')
+          ])
+          
+          // Find and set form/grade name
+          if (formsGradesRes.success && Array.isArray(formsGradesRes.data)) {
+            const formObj = formsGradesRes.data.find((f: any) => f.id === scheme.form_grade_id)
+            formGradeName = formObj ? formObj.name : `Form ${scheme.form_grade_id}`
+            setFormName(formGradeName)
+          }
+          
+          // Find and set term name
+          if (termsRes.success && Array.isArray(termsRes.data)) {
+            const termObj = termsRes.data.find((t: any) => t.id === scheme.term_id)
+            termNameResolved = termObj ? termObj.name : `Term ${scheme.term_id}`
+            setTermName(termNameResolved)
+          }
+        } catch (error) {
+          console.warn('Failed to load form/term names:', error)
+          formGradeName = `Form ${scheme.form_grade_id}`
+          termNameResolved = `Term ${scheme.term_id}`
+        }
+        
+        // Attach names to scheme object for ContentSelectionPanel
+        scheme = {
+          ...scheme,
+          form_grade_name: formGradeName,
+          term_name: termNameResolved
+        }
+        
+        setCurrentScheme(scheme)
+        console.log('✅ Processed scheme for timetable:', scheme)
+        
+        // Set subject from scheme - this should always work now
+        console.log('🎯 Setting up subject from scheme:', scheme.subject_id)
+        const subject = {
+          id: scheme.subject_id,
+          name: scheme.subject_name,
+          code: scheme.subject_name?.substring(0, 3).toUpperCase() || 'SUB',
+          color: '#3B82F6',
+          is_active: true
+        }
+        setCurrentSubject(subject)
+        setCurrentSubjectState(subject)
+        
+        console.log('📚 Loading topics and subtopics for subject:', scheme.subject_id)
+        await loadTopicsAndSubtopicsForSubject(scheme.subject_id)
+
+        // Load other general data
+        await Promise.all([
+          loadSchoolLevels(),
+          loadSubjects()
+        ])
+
+        // Load existing timetable data if schemeId is available
+        if (scheme.id) {
+          await loadExistingTimetable(scheme.id)
+        }
+
+      } catch (error: any) {
+        console.error('Error loading scheme:', error)
+        setError(error.message || 'Error loading scheme data. Please try again.')
+      } finally {
+        setIsLoadingScheme(false)
+        setIsDataLoading(false)
+      }
+    }
+
+    loadSchemeAndInitialize()
+  }, [getUserIdFromSession(session), router])
+
+  // Topic selection handlers
+  const handleTopicSelect = useCallback(async (topicId: number, checked: boolean) => {
+    if (checked) {
+      setSelectedTopicIds(prev => [...prev, topicId])
+      // Load subtopics for this topic
+      const newTopicIds = [...selectedTopicIds, topicId]
+      await loadSubtopicsForTopics(newTopicIds)
+    } else {
+      setSelectedTopicIds(prev => prev.filter(id => id !== topicId))
+      // Remove subtopics of this topic from selection
+      const subtopicsToRemove = availableSubtopics
+        .filter(s => s.topic_id === topicId)
+        .map(s => s.id)
+      setSelectedSubtopicIds(prev => prev.filter(id => !subtopicsToRemove.includes(id)))
+    }
+    
+    // Update timetable state for auto-save
+    const newSelectedTopicIds = checked ? 
+      [...selectedTopicIds, topicId] : 
+      selectedTopicIds.filter(id => id !== topicId)
+    const selectedTopicsData = availableTopics.filter(topic => 
+      newSelectedTopicIds.includes(topic.id)
+    )
+    updateSelectedTopics(selectedTopicsData)
+  }, [selectedTopicIds, availableSubtopics, availableTopics, updateSelectedTopics])
+
+  const handleSubtopicSelect = useCallback((subtopicId: number, checked: boolean) => {
+    if (checked) {
+      setSelectedSubtopicIds(prev => [...prev, subtopicId])
+    } else {
+      setSelectedSubtopicIds(prev => prev.filter(id => id !== subtopicId))
+    }
+    
+    // Update timetable state for auto-save
+    const newSelectedSubtopicIds = checked ? 
+      [...selectedSubtopicIds, subtopicId] : 
+      selectedSubtopicIds.filter(id => id !== subtopicId)
+    const selectedSubtopicsData = availableSubtopics.filter(subtopic => 
+      newSelectedSubtopicIds.includes(subtopic.id)
+    )
+    updateSelectedSubtopics(selectedSubtopicsData)
+  }, [selectedSubtopicIds, availableSubtopics, updateSelectedSubtopics])
+
+  const handleBulkTopicSelect = useCallback(async (topicIds: number[], selected: boolean) => {
+    if (selected) {
+      setSelectedTopicIds(prev => [...new Set([...prev, ...topicIds])])
+      // Load subtopics for all selected topics
+      const newTopicIds = [...new Set([...selectedTopicIds, ...topicIds])]
+      await loadSubtopicsForTopics(newTopicIds)
+    } else {
+      setSelectedTopicIds(prev => prev.filter(id => !topicIds.includes(id)))
+      // Remove subtopics of deselected topics
+      const subtopicsToRemove = availableSubtopics
+        .filter(s => topicIds.includes(s.topic_id))
+        .map(s => s.id)
+      setSelectedSubtopicIds(prev => prev.filter(id => !subtopicsToRemove.includes(id)))
+    }
+    
+    // Update timetable state for auto-save
+    const newSelectedTopicIds = selected ? 
+      [...new Set([...selectedTopicIds, ...topicIds])] : 
+      selectedTopicIds.filter(id => !topicIds.includes(id))
+    const selectedTopicsData = availableTopics.filter(topic => 
+      newSelectedTopicIds.includes(topic.id)
+    )
+    updateSelectedTopics(selectedTopicsData)
+  }, [selectedTopicIds, availableSubtopics, availableTopics, updateSelectedTopics])
+
+  const handleBulkSubtopicSelect = useCallback((subtopicIds: number[], selected: boolean) => {
+    if (selected) {
+      setSelectedSubtopicIds(prev => [...new Set([...prev, ...subtopicIds])])
+    } else {
+      setSelectedSubtopicIds(prev => prev.filter(id => !subtopicIds.includes(id)))
+    }
+    
+    // Update timetable state for auto-save
+    const newSelectedSubtopicIds = selected ? 
+      [...new Set([...selectedSubtopicIds, ...subtopicIds])] : 
+      selectedSubtopicIds.filter(id => !subtopicIds.includes(id))
+    const selectedSubtopicsData = availableSubtopics.filter(subtopic => 
+      newSelectedSubtopicIds.includes(subtopic.id)
+    )
+    updateSelectedSubtopics(selectedSubtopicsData)
+  }, [selectedSubtopicIds, availableSubtopics, updateSelectedSubtopics])
+
+  // Load subtopics for selected topics
+  const loadSubtopicsForTopics = useCallback(async (topicIds: number[]) => {
+    try {
+      const allSubtopics: any[] = []
+      for (const topicId of topicIds) {
+        const subtopicsResponse = await apiClient.get('/api/v1/admin/subtopics', {
+          topic_id: topicId
+        })
+        if (subtopicsResponse.success && subtopicsResponse.data) {
+          allSubtopics.push(...subtopicsResponse.data)
+        }
+      }
+      setAvailableSubtopics(allSubtopics)
+    } catch (error) {
+      console.error('Error loading subtopics:', error)
+    }
+  }, [])
+
+  // Handle slot click with proper validation
+  const handleSlotClick = useCallback((slot: LessonSlot) => {
+    if (!currentSubject) {
+      alert('No subject found in your scheme of work. Please check your scheme setup.')
+      return
+    }
+
+    if (selectedTopicIds.length === 0 && selectedSubtopicIds.length === 0) {
+      alert('Please select at least one topic or subtopic to include in your timetable.')
+      return
+    }
+
+    // Add slot logic here
+    addSlot(slot)
+  }, [currentSubject, selectedTopicIds, selectedSubtopicIds, addSlot])
+
+  // Loading state
+  if (isLoadingScheme || isDataLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading Timetable</h2>
+          <p className="text-gray-600">
+            {isLoadingScheme ? 'Loading your scheme...' : 'Loading curriculum data...'}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center max-w-md">
+          <AlertTriangle className="h-12 w-12 text-red-600 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Error Loading Timetable</h2>
+          <p className="text-gray-600 mb-4">{error}</p>
+          <div className="space-x-2">
+            <Button onClick={() => window.location.reload()} variant="outline">
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Retry
+            </Button>
+            
+            {currentScheme ? (
+              // Show edit button if we have a scheme ID
+              <Button onClick={() => router.push(`/dashboard/scheme-of-work/${currentScheme.id}/edit`)} variant="secondary">
+                <Edit className="h-4 w-4 mr-2" />
+                Edit Scheme
+              </Button>
+            ) : (
+              // Show create new scheme button if no scheme or scheme was cleared
+              <Button onClick={() => router.push('/dashboard/scheme-of-work')} className="bg-emerald-600 hover:bg-emerald-700">
+                <School className="h-4 w-4 mr-2" />
+                Create New Scheme
+              </Button>
+            )}
+          </div>
+          
+          {/* Show auto-redirect message if scheme was cleared */}
+          {!currentScheme && error.includes('incomplete or corrupted') && (
+            <p className="text-sm text-gray-500 mt-4">
+              You will be redirected to create a new scheme in a few seconds...
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-4 md:p-6">
+      <div className="max-w-7xl mx-auto space-y-6">
+        
+        {/* Instructions Modal */}
+        {showInstructions && (
+          <TimetableInstructions onClose={() => setShowInstructions(false)} />
+        )}
+
+        {/* Context Modal */}
+        <Dialog open={showContextModal} onOpenChange={setShowContextModal}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <School className="h-5 w-5 text-blue-600" />
+                Scheme Context Details
+              </DialogTitle>
+            </DialogHeader>
+            
+            {currentScheme && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-700">School Name</label>
+                    <p className="text-sm text-gray-900">{currentScheme.school_name}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-700">Subject</label>
+                    <p className="text-sm text-gray-900">{currentScheme.subject_name}</p>
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <label className="text-sm font-medium text-gray-700">Class & Term</label>
+                    <p className="text-sm text-gray-900">
+                      {formName || (currentScheme.form_grade_id ? `Form ${currentScheme.form_grade_id}` : 'N/A')}<span className="mx-2">|</span>{termName || (currentScheme.term_id ? `Term ${currentScheme.term_id}` : 'N/A')}
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">Status</label>
+                  <Badge variant={currentScheme.status === 'completed' ? 'default' : 'secondary'}>
+                    {currentScheme.status}
+                  </Badge>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Scheme Context Card */}
+        {currentScheme && (
+          <Card className="border-l-4 border-l-blue-500 bg-blue-50">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <GraduationCap className="h-5 w-5 text-blue-600" />
+                  <div>
+                    <p className="font-medium text-blue-900">{currentScheme.subject_name}</p>
+                    <p className="text-sm text-blue-700">{currentScheme.school_name}</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-4 text-sm text-blue-700">
+                  <div className="flex items-center space-x-1">
+                    <Building2 className="h-4 w-4" />
+                    <span>Form {formName || (currentScheme.form_grade_id ? `Form ${currentScheme.form_grade_id}` : 'N/A')}</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <Calendar className="h-4 w-4" />
+                    <span>Term {termName || (currentScheme.term_id ? `Term ${currentScheme.term_id}` : 'N/A')}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setShowContextModal(true)}
+                className="text-blue-600 border-blue-200 hover:bg-blue-50"
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                View Details
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Main Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <div className="inline-flex items-center justify-center w-12 h-12 bg-gradient-to-br from-emerald-600 to-blue-600 rounded-full">
+              <Calendar className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Interactive Timetable Builder</h1>
+              <p className="text-gray-600">Design your perfect teaching schedule with database-powered insights</p>
+              {timetableId && (
+                <p className="text-sm text-blue-600 mt-1">
+                  <Database className="h-3 w-3 inline mr-1" />
+                  Database ID: {timetableId}
+                </p>
+              )}
+            </div>
+          </div>
+          
+          {/* Status Badge and Controls */}
+          <div className="flex items-center space-x-3">
+            {isAutoSaving ? (
+              <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                Auto-saving...
+              </Badge>
+            ) : lastSaveTime ? (
+              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                <CheckCircle2 className="h-3 w-3 mr-1" />
+                Saved {new Date(lastSaveTime).toLocaleTimeString()}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
+                <Clock className="h-3 w-3 mr-1" />
+                Ready
+              </Badge>
+            )}
+            
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setShowInstructions(true)}
+              className="text-blue-600 border-blue-200 hover:bg-blue-50"
+            >
+              <Info className="h-4 w-4 mr-2" />
+              Help
+            </Button>
+          </div>
+        </div>
+
+        {/* Content Selection Panel */}
+        {currentScheme && (
+          <ContentSelectionPanel
+            currentScheme={currentScheme}
+            subjects={availableSubjects}
+            currentSubject={currentSubject}
+            availableTopics={availableTopics}
+            availableSubtopics={availableSubtopics}
+            selectedTopicIds={selectedTopicIds}
+            selectedSubtopicIds={selectedSubtopicIds}
+            loading={isDataLoading}
+            error={null}
+            onTopicSelect={handleTopicSelect}
+            onSubtopicSelect={handleSubtopicSelect}
+            onBulkTopicSelect={handleBulkTopicSelect}
+            onBulkSubtopicSelect={handleBulkSubtopicSelect}
+          />
+        )}
+
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+          
+          {/* Timetable Grid */}
+          <div className="xl:col-span-3">
+            <Card className="shadow-lg border-0 bg-white">
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2">
+                  <Calendar className="h-5 w-5 text-emerald-600" />
+                  Weekly Timetable
+                  {selectedSlots.length > 0 && (
+                    <Badge variant="secondary" className="ml-2">
+                      {selectedSlots.length} lessons scheduled
+                    </Badge>
+                  )}
+                </CardTitle>
+                {isAutoSaving && (
+                  <CardDescription className="flex items-center gap-2 text-blue-600">
+                    <Database className="h-4 w-4" />
+                    All changes are automatically saved to the database.
+                  </CardDescription>
+                )}
+              </CardHeader>
+              <CardContent>
+                <TimetableGrid
+                  selectedSlots={selectedSlots}
+                  onSlotClick={handleSlotClick}
+                  currentSubject={currentSubject}
+                  conflictSlots={conflictWarnings}
+                />
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right Panel - Analysis and AI Tips */}
+          <div className="xl:col-span-2 space-y-6">
+            
+            {/* Analysis Panel */}
+            <AnalysisPanel 
+              analytics={analytics}
+              isAutoSaving={isAutoSaving}
+              lastSaveTime={lastSaveTime}
+            />
+            
+            {/* AI Tips Panel */}
+            <AITipsPanel 
+              tips={aiTips}
+            />
+            
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Button 
+              variant="outline" 
+              onClick={undo}
+              disabled={!canUndo}
+              className="flex items-center gap-2"
+            >
+              <Undo2 className="h-4 w-4" />
+              Undo
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={clearAll}
+              disabled={selectedSlots.length === 0}
+              className="flex items-center gap-2 text-red-600 border-red-200 hover:bg-red-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              Clear All
+            </Button>
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            <Button 
+              variant="outline" 
+              onClick={saveToStorage}
+              className="flex items-center gap-2"
+            >
+              <Save className="h-4 w-4" />
+              Save to Storage
+            </Button>
+            <Button 
+              variant="outline" 
+              className="flex items-center gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Export
+            </Button>
+            <Button 
+              variant="outline" 
+              className="flex items-center gap-2"
+            >
+              <Share2 className="h-4 w-4" />
+              Share
+            </Button>
+          </div>
+        </div>
+
+        {/* Statistics */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-blue-700">Total Lessons</p>
+                <p className="text-2xl font-bold text-blue-900">{selectedSlots.length}</p>
+              </div>
+              <Calendar className="h-8 w-8 text-blue-600" />
+            </div>
+          </div>
+          
+          <div className="bg-emerald-50 p-4 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-emerald-700">Topics Selected</p>
+                <p className="text-2xl font-bold text-emerald-900">{selectedTopicIds.length}</p>
+              </div>
+              <Target className="h-8 w-8 text-emerald-600" />
+            </div>
+          </div>
+          
+          <div className="bg-purple-50 p-4 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-purple-700">Subtopics Selected</p>
+                <p className="text-2xl font-bold text-purple-900">{selectedSubtopicIds.length}</p>
+              </div>
+              <List className="h-8 w-8 text-purple-600" />
+            </div>
+          </div>
+        </div>
+        {/* Save and Continue Section */}
+        <Card className="border-green-200 bg-green-50 mt-4">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  <div>
+                    <h3 className="font-medium text-green-900">Save Your Complete Timetable</h3>
+                    <p className="text-sm text-green-700">
+                      Save all selected topics, subtopics, and lesson arrangements to the database
+                    </p>
+                  </div>
+                </div>
+                {saveMessage && (
+                  <div className={`p-2 rounded text-sm ${
+                    saveMessage.includes('Error') || saveMessage.includes('Please') 
+                      ? 'bg-red-100 text-red-700' 
+                      : 'bg-green-100 text-green-700'
+                  }`}>
+                    {saveMessage}
+                  </div>
+                )}
+              </div>
+              <Button 
+                onClick={handleSaveAndContinue}
+                disabled={isSavingTimetable || (selectedTopicIds.length === 0 && selectedSubtopicIds.length === 0)}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                {isSavingTimetable ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Save & Continue
+                  </>
+                )}
+              </Button>
+            </div>
+            {/* Save Summary */}
+            <div className="mt-4 grid grid-cols-3 gap-4 text-center">
+              <div className="bg-white p-3 rounded border">
+                <p className="text-lg font-bold text-green-600">{selectedTopicIds.length}</p>
+                <p className="text-xs text-green-700">Topics to Save</p>
+              </div>
+              <div className="bg-white p-3 rounded border">
+                <p className="text-lg font-bold text-green-600">{selectedSubtopicIds.length}</p>
+                <p className="text-xs text-green-700">Subtopics to Save</p>
+              </div>
+              <div className="bg-white p-3 rounded border">
+                <p className="text-lg font-bold text-green-600">{selectedSlots.length}</p>
+                <p className="text-xs text-green-700">Lesson Slots to Save</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        {showGenerationOption && (
+          <Card className="border-l-4 border-l-green-500 bg-green-50 mt-4">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <Zap className="h-8 w-8 text-green-600" />
+                  <div>
+                    <h3 className="font-semibold text-green-900">Ready to Generate Scheme!</h3>
+                    <p className="text-sm text-green-700">Your timetable is saved. Generate a professional scheme of work using AI.</p>
+                  </div>
+                </div>
+                <Button 
+                  onClick={saveAndGenerateScheme}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  Generate Scheme
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  )
+}
+
+### backend/main.py ###
+# backend/main.py
+from fastapi import FastAPI, HTTPException, Depends, Query, Path
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session, joinedload  # Add joinedload import
+from sqlalchemy.sql import func
+from typing import List, Optional
+import time
+import logging
+import os
+from database import create_tables, get_db
+import schemas
+import crud
+import models
+from fastapi.exception_handlers import RequestValidationError
+from fastapi.exceptions import RequestValidationError
+from fastapi import Request
+import uuid
+from datetime import datetime
+from fastapi import APIRouter, Query, Depends, HTTPException
+from sqlalchemy.orm import Session
+from datetime import datetime
+import logging
+
+from services.ai_service import GroqAIService
+from database import get_db
+
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Create FastAPI app
+
+app = FastAPI(
+    title="EDUScheme Pro API",
+    description="AI-powered curriculum planning and content management system",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
+
+# Enable CORS for frontend (React on localhost:3000)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # or ["*"] for all origins (not recommended for production)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ===== USER DEBUG & ENHANCED LOOKUP HELPERS =====
+def get_or_create_user(db: Session, user_identifier: str) -> models.User:
+    """
+    Enhanced user lookup that tries multiple methods and creates user if needed
+    """
+    logger.info(f"🔍 Looking up user with identifier: '{user_identifier}'")
+    # Method 1: Try by Google ID
+    user = crud.user.get_by_google_id(db, google_id=user_identifier)
+    if user:
+        logger.info(f"✅ Found user by Google ID: {user.email}")
+        return user
+    # Method 2: Try by email (in case user_identifier is email)
+    user = crud.user.get_by_email(db, email=user_identifier)
+    if user:
+        logger.info(f"✅ Found user by email: {user.email}")
+        return user
+    # Method 3: If identifier looks like email, create user
+    if "@" in user_identifier:
+        logger.info(f"🔧 Creating new user with email: {user_identifier}")
+        try:
+            user_data = {
+                "google_id": user_identifier,
+                "email": user_identifier,
+                "name": user_identifier.split("@")[0].title(),
+                "picture": None
+            }
+            user = crud.user.create(db=db, obj_in=schemas.UserCreate(**user_data))
+            logger.info(f"✅ Created new user: {user.email}")
+            return user
+        except Exception as e:
+            logger.error(f"❌ Failed to create user: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
+    logger.error(f"❌ Could not find or create user with identifier: '{user_identifier}'")
+    return None
+
+# ===== DEBUG USER SESSION ENDPOINT =====
+@app.get("/api/debug/user-session", tags=["Debug"])
+async def debug_user_session(
+    user_google_id: str = Query(..., description="User's Google ID from session"),
+    db: Session = Depends(get_db)
+):
+    """Debug endpoint to check user session and database"""
+    try:
+        logger.info(f"🔍 Debug - Received user_google_id: '{user_google_id}'")
+        user_by_google_id = crud.user.get_by_google_id(db, google_id=user_google_id)
+        user_by_email = crud.user.get_by_email(db, email=user_google_id)
+        all_users = db.query(models.User).limit(10).all()
+        return {
+            "success": True,
+            "debug_info": {
+                "received_identifier": user_google_id,
+                "user_found_by_google_id": bool(user_by_google_id),
+                "user_found_by_email": bool(user_by_email),
+                "user_by_google_id_details": {
+                    "id": user_by_google_id.id if user_by_google_id else None,
+                    "email": user_by_google_id.email if user_by_google_id else None,
+                    "google_id": user_by_google_id.google_id if user_by_google_id else None
+                } if user_by_google_id else None,
+                "user_by_email_details": {
+                    "id": user_by_email.id if user_by_email else None,
+                    "email": user_by_email.email if user_by_email else None,
+                    "google_id": user_by_email.google_id if user_by_email else None
+                } if user_by_email else None,
+                "all_users_in_db": [
+                    {
+                        "id": u.id,
+                        "email": u.email,
+                        "google_id": u.google_id,
+                        "name": u.name
+                    } for u in all_users
+                ],
+                "total_users_in_db": len(all_users)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Debug error: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+# Create FastAPI app
+app = FastAPI(
+    title="EDUScheme Pro API",
+    description="AI-powered curriculum planning and content management system",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
+
+# ============= HELPER FUNCTIONS =============
+# ADD THIS HELPER FUNCTION AFTER THE APP CREATION BUT BEFORE ENDPOINTS
+
+def get_or_create_user(db: Session, user_identifier: str) -> models.User:
+    """
+    Enhanced user lookup that tries multiple methods and creates user if needed
+    """
+    logger.info(f"🔍 Looking up user with identifier: '{user_identifier}'")
+    # Method 1: Try by Google ID
+    user = crud.user.get_by_google_id(db, google_id=user_identifier)
+    if user:
+        logger.info(f"✅ Found user by Google ID: {user.email}")
+        return user
+    # Method 2: Try by email (in case user_identifier is email)
+    user = crud.user.get_by_email(db, email=user_identifier)
+    if user:
+        logger.info(f"✅ Found user by email: {user.email}")
+        return user
+    # Method 3: If identifier looks like email, create user
+    if "@" in user_identifier:
+        logger.info(f"🔧 Creating new user with email: {user_identifier}")
+        try:
+            user_data = {
+                "google_id": user_identifier,  # Use email as google_id for now
+                "email": user_identifier,
+                "name": user_identifier.split("@")[0].title(),  # Use email prefix as name
+                "picture": None
+            }
+            user = crud.user.create(db=db, obj_in=schemas.UserCreate(**user_data))
+            logger.info(f"✅ Created new user: {user.email}")
+            return user
+        except Exception as e:
+            logger.error(f"❌ Failed to create user: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
+    # If we get here, we couldn't find or create the user
+    logger.error(f"❌ Could not find or create user with identifier: '{user_identifier}'")
+    return None
+
+# ============= DEBUG ENDPOINT =============
+# ADD THIS DEBUG ENDPOINT AFTER THE HELPER FUNCTIONS
+
+@app.get("/api/debug/user-session", tags=["Debug"])
+async def debug_user_session(
+    user_google_id: str = Query(..., description="User's Google ID from session"),
+    db: Session = Depends(get_db)
+):
+    """Debug endpoint to check user session and database"""
+    try:
+        # Check what we received
+        logger.info(f"🔍 Debug - Received user_google_id: '{user_google_id}'")
+        # Try different ways to find user
+        user_by_google_id = crud.user.get_by_google_id(db, google_id=user_google_id)
+        user_by_email = crud.user.get_by_email(db, email=user_google_id)
+        # Get all users to see what's in database
+        all_users = db.query(models.User).limit(10).all()
+        return {
+            "success": True,
+            "debug_info": {
+                "received_identifier": user_google_id,
+                "user_found_by_google_id": bool(user_by_google_id),
+                "user_found_by_email": bool(user_by_email),
+                "user_by_google_id_details": {
+                    "id": user_by_google_id.id if user_by_google_id else None,
+                    "email": user_by_google_id.email if user_by_google_id else None,
+                    "google_id": user_by_google_id.google_id if user_by_google_id else None
+                } if user_by_google_id else None,
+                "user_by_email_details": {
+                    "id": user_by_email.id if user_by_email else None,
+                    "email": user_by_email.email if user_by_email else None,
+                    "google_id": user_by_email.google_id if user_by_email else None
+                } if user_by_email else None,
+                "all_users_in_db": [
+                    {
+                        "id": u.id,
+                        "email": u.email,
+                        "google_id": u.google_id,
+                        "name": u.name
+                    } for u in all_users
+                ],
+                "total_users_in_db": len(all_users)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Debug error: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+# CORS configuration
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+
+# Middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Custom middleware for request timing
+@app.middleware("http")
+async def add_process_time_header(request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(process_time)
+    return response
+
+# Global exception handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    logger.error(f"Global exception: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "message": "Internal server error",
+            "detail": "An unexpected error occurred"
+        }
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error(f"Validation error: {exc.errors()}")
+    try:
+        body = await request.body()
+        logger.error(f"Request body: {body}")
+    except Exception as e:
+        logger.error(f"Could not read request body: {e}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+    )
+
+# Startup event
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database and perform startup tasks"""
+    logger.info("Starting EDUScheme Pro API...")
+    try:
+        create_tables()
+        logger.info("Database tables created/verified successfully")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {str(e)}")
+        raise
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": "eduscheme-pro-api",
+        "version": "2.0.0",
+        "timestamp": time.time()
+    }
+
+# ============= USER ENDPOINTS =============
+
+@app.post("/api/users", response_model=schemas.User, tags=["Users"])
+async def create_user(
+   user: schemas.UserCreate,
+   db: Session = Depends(get_db)
+):
+   """Create a new user from Google authentication"""
+   try:
+       # Check if user already exists
+       existing_user = crud.user.get_by_google_id(db, google_id=user.google_id)
+       if existing_user:
+           # Update last login
+           existing_user.last_login = func.now()
+           db.commit()
+           db.refresh(existing_user)
+           return existing_user
+       
+       # Create new user
+       db_user = crud.user.create(db=db, obj_in=user)
+       return db_user
+   except Exception as e:
+       logger.error(f"Error creating user: {str(e)}")
+       raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/users/me", response_model=schemas.User, tags=["Users"])
+async def get_current_user(
+   google_id: str = Query(..., description="Google ID of the user"),
+   db: Session = Depends(get_db)
+):
+   """Get current user information"""
+   user = crud.user.get_by_google_id(db, google_id=google_id)
+   if not user:
+       raise HTTPException(status_code=404, detail="User not found")
+   return user
+
+@app.put("/api/users/me", response_model=schemas.User, tags=["Users"])
+async def update_current_user(
+   user_update: schemas.UserUpdate,
+   google_id: str = Query(..., description="Google ID of the user"),
+   db: Session = Depends(get_db)
+):
+   """Update current user information"""
+   user = crud.user.get_by_google_id(db, google_id=google_id)
+   if not user:
+       raise HTTPException(status_code=404, detail="User not found")
+   
+   updated_user = crud.user.update(db=db, db_obj=user, obj_in=user_update)
+   return updated_user
+
+# ============= SCHEME OF WORK ENDPOINTS =============
+
+@app.post("/api/schemes", response_model=schemas.ResponseWrapper, tags=["Schemes"])
+async def create_scheme(
+   scheme: schemas.SchemeOfWorkCreate,
+   user_google_id: str = Query(..., description="User's Google ID"),
+   db: Session = Depends(get_db)
+):
+   """Create a new scheme of work"""
+   try:
+       logger.info(f"Creating scheme for user: {user_google_id}")
+       logger.info(f"Scheme data: {scheme.dict()}")
+       
+       # Validate subject_id is provided and valid
+       if not scheme.subject_id or scheme.subject_id <= 0:
+           raise HTTPException(status_code=422, detail="Valid subject_id is required to create a scheme")
+       
+       # Verify subject exists
+       subject = db.query(models.Subject).filter(models.Subject.id == scheme.subject_id).first()
+       if not subject:
+           raise HTTPException(status_code=422, detail=f"Subject with ID {scheme.subject_id} not found")
+       
+       # Get user by Google ID
+       user = crud.user.get_by_google_id(db, google_id=user_google_id)
+       if not user:
+           raise HTTPException(status_code=404, detail="User not found. Please ensure user is created first.")
+       logger.info(f"Found user: {user.id} - {user.email}")
+       
+       # Create scheme data
+       scheme_data = scheme.dict()
+       scheme_data["user_id"] = user.id
+       
+       # Ensure subject_name matches the actual subject
+       scheme_data["subject_name"] = subject.name
+       
+       logger.info(f"Creating scheme with validated data: {scheme_data}")
+       db_scheme = crud.scheme.create(db=db, obj_in=scheme_data)
+       logger.info(f"Scheme created successfully: {db_scheme.id}")
+       return schemas.ResponseWrapper(
+           success=True,
+           message="Scheme created successfully",
+           data=schemas.SchemeOfWork.model_validate(db_scheme)
+       )
+   except HTTPException as he:
+       logger.error(f"HTTP Exception: {he.detail}")
+       return schemas.ResponseWrapper(
+           success=False,
+           message=he.detail,
+           data=None
+       )
+   except Exception as e:
+       logger.error(f"Error creating scheme: {type(e).__name__}: {str(e)}")
+       logger.exception("Full exception details:")
+       return schemas.ResponseWrapper(
+           success=False,
+           message=f"Failed to create scheme: {type(e).__name__}: {str(e)}",
+           data=None
+       )
+
+@app.get("/api/schemes", response_model=schemas.ResponseWrapper, tags=["Schemes"])
+async def get_user_schemes(
+   user_google_id: str = Query(..., description="User's Google ID"),
+   status: Optional[str] = Query(None, description="Filter by status"),
+   skip: int = Query(0, ge=0, description="Number of schemes to skip"),
+   limit: int = Query(100, ge=1, le=100, description="Number of schemes to return"),
+   db: Session = Depends(get_db)
+):
+   try:
+       user = crud.user.get_by_google_id(db, google_id=user_google_id)
+       if not user:
+           raise HTTPException(status_code=404, detail="User not found")
+       schemes = crud.scheme.get_by_user(
+           db=db, 
+           user_id=user.id, 
+           status=status, 
+           skip=skip, 
+           limit=limit
+       )
+       return schemas.ResponseWrapper(
+           success=True,
+           message="Schemes retrieved successfully",
+           data=[schemas.SchemeOfWork.model_validate(s) for s in schemes],
+           total=len(schemes)
+       )
+   except Exception as e:
+       return schemas.ResponseWrapper(
+           success=False,
+           message=str(e),
+           data=None
+       )
+
+@app.get("/api/schemes/{scheme_id}", response_model=schemas.ResponseWrapper, tags=["Schemes"])
+async def get_scheme(
+   scheme_id: int = Path(..., description="Scheme ID"),
+   user_google_id: str = Query(..., description="User's Google ID"),
+   db: Session = Depends(get_db)
+):
+    try:
+        logger.info(f"🔍 Getting scheme {scheme_id} for user: {user_google_id}")
+        user = get_or_create_user(db, user_google_id)
+        if not user:
+            return schemas.ResponseWrapper(
+                success=False,
+                message=f"User not found and could not be created. Identifier: {user_google_id}",
+                data=None
+            )
+        logger.info(f"✅ Found user: {user.email} (ID: {user.id})")
+        scheme = db.query(models.SchemeOfWork).options(
+            joinedload(models.SchemeOfWork.form_grade),
+            joinedload(models.SchemeOfWork.term),
+            joinedload(models.SchemeOfWork.school_level),
+            joinedload(models.SchemeOfWork.subject)
+        ).filter(models.SchemeOfWork.id == scheme_id).first()
+        if not scheme:
+            return schemas.ResponseWrapper(
+                success=False,
+                message="Scheme not found. Please select a valid scheme.",
+                data=None
+            )
+        if scheme.user_id != user.id:
+            logger.warning(f"⚠️ Scheme belongs to user {scheme.user_id} but requested by user {user.id}")
+            # For debugging, let's still return the scheme but with a warning
+            # In production, you'd want to enforce this strictly
+        scheme_data = {
+            "id": scheme.id,
+            "school_name": scheme.school_name,
+            "subject_name": scheme.subject_name,
+            "subject_id": scheme.subject_id,  # Fix: Include the missing subject_id field
+            "form_grade": scheme.form_grade.name if scheme.form_grade else "Unknown Grade",
+            "form_grade_name": scheme.form_grade.name if scheme.form_grade else "Unknown Grade",
+            "term": scheme.term.name if scheme.term else "Unknown Term",
+            "term_name": scheme.term.name if scheme.term else "Unknown Term",
+            "academic_year": str(scheme.created_at.year) if scheme.created_at else "2024",
+            "status": scheme.status,
+            "progress": scheme.progress,
+            "content": scheme.content,
+            "scheme_metadata": scheme.scheme_metadata,
+            "generated_content": scheme.generated_content,
+            "ai_model_used": scheme.ai_model_used,
+            "generation_metadata": scheme.generation_metadata,
+            "generation_date": scheme.generation_date.isoformat() if scheme.generation_date else None,
+            "generation_version": scheme.generation_version,
+            "is_ai_generated": scheme.is_ai_generated,
+            "user_id": scheme.user_id,
+            "created_at": scheme.created_at.isoformat() if scheme.created_at else None,
+            "updated_at": scheme.updated_at.isoformat() if scheme.updated_at else None,
+        }
+        logger.info(f"✅ Returning scheme data: {scheme_data}")
+        return schemas.ResponseWrapper(
+            success=True,
+            message="Scheme retrieved successfully",
+            data=scheme_data
+        )
+    except Exception as e:
+        logger.error(f"❌ Error getting scheme {scheme_id}: {str(e)}", exc_info=True)
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"An unexpected error occurred: {str(e)}",
+            data=None
+        )
+
+@app.put("/api/schemes/{scheme_id}", response_model=schemas.ResponseWrapper, tags=["Schemes"])
+async def update_scheme(
+   scheme_update: schemas.SchemeOfWorkUpdate,
+   scheme_id: int = Path(..., description="Scheme ID"),
+   user_google_id: str = Query(..., description="User's Google ID"),
+   db: Session = Depends(get_db)
+):
+   try:
+       user = crud.user.get_by_google_id(db, google_id=user_google_id)
+       if not user:
+           raise HTTPException(status_code=404, detail="User not found")
+       scheme = crud.scheme.get(db=db, id=scheme_id)
+       if not scheme:
+           raise HTTPException(status_code=404, detail="Scheme not found")
+       if scheme.user_id != user.id:
+           raise HTTPException(status_code=403, detail="Not authorized to update this scheme")
+       updated_scheme = crud.scheme.update(db=db, db_obj=scheme, obj_in=scheme_update)
+       return schemas.ResponseWrapper(
+           success=True,
+           message="Scheme updated successfully",
+           data=schemas.SchemeOfWork.model_validate(updated_scheme)
+       )
+   except Exception as e:
+       return schemas.ResponseWrapper(
+           success=False,
+           message=str(e),
+           data=None
+       )
+
+@app.delete("/api/schemes/{scheme_id}", response_model=schemas.ResponseWrapper, tags=["Schemes"])
+async def delete_scheme(
+   scheme_id: int = Path(..., description="Scheme ID"),
+   user_google_id: str = Query(..., description="User's Google ID"),
+   db: Session = Depends(get_db)
+):
+   try:
+       user = crud.user.get_by_google_id(db, google_id=user_google_id)
+       if not user:
+           raise HTTPException(status_code=404, detail="User not found")
+       scheme = crud.scheme.get(db=db, id=scheme_id)
+       if not scheme:
+           raise HTTPException(status_code=404, detail="Scheme not found")
+       if scheme.user_id != user.id:
+           raise HTTPException(status_code=403, detail="Not authorized to delete this scheme")
+       crud.scheme.remove(db=db, id=scheme_id)
+       return schemas.ResponseWrapper(
+           success=True,
+           message="Scheme deleted successfully",
+           data=None
+       )
+   except Exception as e:
+       return schemas.ResponseWrapper(
+           success=False,
+           message=str(e),
+           data=None
+       )
+
+# ============= DASHBOARD STATS ENDPOINT =============
+
+@app.get("/api/dashboard/stats", tags=["Dashboard"])
+async def get_dashboard_stats(
+   user_google_id: str = Query(..., description="User's Google ID"),
+   db: Session = Depends(get_db)
+):
+   """Get user dashboard statistics"""
+   user = crud.user.get_by_google_id(db, google_id=user_google_id)
+   if not user:
+       raise HTTPException(status_code=404, detail="User not found")
+   
+   # Get scheme statistics
+   total_schemes = crud.scheme.count_by_user(db=db, user_id=user.id)
+   completed_schemes = crud.scheme.count_by_user_and_status(db=db, user_id=user.id, status="completed")
+   active_schemes = crud.scheme.count_by_user_and_status(db=db, user_id=user.id, status="in-progress")
+   
+   # Get lesson plan count
+   total_lessons = crud.lesson_plan.count_by_user(db=db, user_id=user.id)
+   
+   return {
+       "success": True,
+       "data": {
+           "total_schemes": total_schemes,
+           "completed_schemes": completed_schemes,
+           "active_schemes": active_schemes,
+           "total_lessons": total_lessons,
+           "completion_rate": round((completed_schemes / total_schemes * 100) if total_schemes > 0 else 0, 1)
+       }
+   }
+
+# Root endpoint
+@app.get("/")
+async def root():
+    """Root endpoint with API information"""
+    return {
+        "message": "Welcome to EDUScheme Pro API",
+        "version": "1.0.0",
+        "description": "AI-powered curriculum planning and content management",
+        "docs": "/docs",
+        "health": "/health"
+    }
+
+# ============= SCHOOL SYSTEM ENDPOINTS FOR FRONTEND =============
+
+@app.get("/api/school-levels", tags=["School System"])
+async def get_school_levels(
+    include_relations: bool = Query(True, description="Include forms and terms"),
+    db: Session = Depends(get_db)
+):
+    """Get all school levels with their forms, grades, and terms"""
+    try:
+        if include_relations:
+            # Use the enhanced CRUD method to get relations
+            school_levels_data = crud.school_level.get_all_with_relations(db)
+            return {
+                "success": True,
+                "data": school_levels_data,
+                "count": len(school_levels_data)
+            }
+        else:
+            school_levels = crud.school_level.get_multi(db)
+            return {
+                "success": True,
+                "data": [schemas.SchoolLevel.model_validate(sl) for sl in school_levels],
+                "count": len(school_levels)
+            }
+    except Exception as e:
+        logger.error(f"Error fetching school levels: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch school levels")
+
+@app.get("/api/subjects/by-term/{term_id}", tags=["Subjects"])
+async def get_subjects_by_term(
+    term_id: int = Path(..., description="Term ID"),
+    db: Session = Depends(get_db)
+):
+    """Get all subjects for a specific term"""
+    try:
+        subjects = crud.subject.get_by_term(db=db, term_id=term_id)
+        return {
+            "success": True,
+            "data": [schemas.Subject.model_validate(s) for s in subjects],
+            "count": len(subjects)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching subjects for term {term_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch subjects")
+
+# ================== ADMIN API ROUTES ==================
+
+# School Levels Endpoints
+@app.post("/api/v1/admin/school-levels/", response_model=schemas.ResponseWrapper)
+def create_school_level(
+    school_level: schemas.SchoolLevelCreate,
+    db: Session = Depends(get_db)
+):
+    """Create a new school level (Primary, Secondary, High School, etc.)"""
+    try:
+        print(f"Creating school level with data: {school_level}")
+        
+        # Check if code is unique within school
+        existing = crud.school_level.get_by_code(
+            db=db, code=school_level.code, school_id=school_level.school_id
+        )
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"School level with code '{school_level.code}' already exists in this school"
+            )
+        
+        db_school_level = crud.school_level.create(db=db, obj_in=school_level)
+        print(f"Successfully created: {db_school_level}")
+        
+        return schemas.ResponseWrapper(
+            message="School level created successfully",
+            data=schemas.SchoolLevel.model_validate(db_school_level)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error creating school level: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/v1/admin/school-levels/debug/", response_model=schemas.ResponseWrapper)
+def debug_create_school_level(
+    request_data: dict,
+    db: Session = Depends(get_db)
+):
+    """Debug endpoint to see what data we're receiving"""
+    try:
+        print("=== DEBUG: Received data ===")
+        print(f"Request data: {request_data}")
+        print(f"Request data type: {type(request_data)}")
+        
+        # Try to create the schema
+        try:
+            school_level_data = schemas.SchoolLevelCreate(**request_data)
+            print(f"Schema validation successful: {school_level_data}")
+        except Exception as schema_error:
+            print(f"Schema validation error: {schema_error}")
+            return schemas.ResponseWrapper(
+                success=False,
+                message=f"Schema validation failed: {str(schema_error)}",
+                data=None
+            )
+        
+        # Try to create in database
+        try:
+            db_school_level = crud.school_level.create(db=db, obj_in=school_level_data)
+            print(f"Database creation successful: {db_school_level}")
+            
+            return schemas.ResponseWrapper(
+                message="School level created successfully (debug)",
+                data=db_school_level
+            )
+        except Exception as db_error:
+            print(f"Database error: {db_error}")
+            return schemas.ResponseWrapper(
+                success=False,
+                message=f"Database error: {str(db_error)}",
+                data=None
+            )
+            
+    except Exception as e:
+        print(f"General error: {e}")
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"General error: {str(e)}",
+            data=None
+        )
+
+@app.get("/api/v1/admin/school-levels/", response_model=schemas.ResponseWrapper)
+def list_school_levels(
+    school_id: Optional[int] = Query(None),
+    include_inactive: bool = Query(True, description="Include inactive school levels"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
+):
+    """List all school levels, optionally filtered by school"""
+    try:
+        if school_id:
+            school_levels = crud.school_level.get_by_school(
+                db=db, 
+                school_id=school_id, 
+                include_inactive=include_inactive
+            )
+        else:
+            if include_inactive:
+                # Get all school levels including inactive
+                school_levels = crud.school_level.get_all_including_inactive(
+                    db=db, skip=skip, limit=limit
+                )
+            else:
+                # Get only active school levels
+                school_levels = crud.school_level.get_multi(
+                    db=db, skip=skip, limit=limit, is_active=True
+                )
+                
+        return schemas.ResponseWrapper(
+            message="School levels retrieved successfully",
+            data=[schemas.SchoolLevel.model_validate(sl) for sl in school_levels],
+            total=len(school_levels)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/school-levels/{school_level_id}", response_model=schemas.ResponseWrapper)
+def get_school_level(
+    school_level_id: int = Path(..., gt=0),
+    include_hierarchy: bool = Query(False),
+    db: Session = Depends(get_db)
+):
+    """Get a single school level by ID, optionally including hierarchy"""
+    try:
+        if include_hierarchy:
+            school_level = crud.school_level.get_with_hierarchy(db=db, school_level_id=school_level_id)
+            # You may want to use a nested schema here if you have one
+            # For now, fallback to normal
+        else:
+            school_level = crud.school_level.get(db=db, id=school_level_id)
+        if not school_level:
+            raise HTTPException(status_code=404, detail="School level not found")
+        return schemas.ResponseWrapper(
+            message="School level retrieved successfully",
+            data=schemas.SchoolLevel.model_validate(school_level)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/api/v1/admin/school-levels/{school_level_id}", response_model=schemas.ResponseWrapper)
+def update_school_level(
+    school_level_update: schemas.SchoolLevelUpdate,
+    school_level_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """Update a school level"""
+    try:
+        db_school_level = crud.school_level.get(db=db, id=school_level_id)
+        if not db_school_level:
+            raise HTTPException(status_code=404, detail="School level not found")
+        
+        updated_school_level = crud.school_level.update(
+            db=db, db_obj=db_school_level, obj_in=school_level_update
+        )
+        
+        return schemas.ResponseWrapper(
+            message="School level updated successfully",
+            data=schemas.SchoolLevel.model_validate(updated_school_level)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/v1/admin/school-levels/{school_level_id}", response_model=schemas.ResponseWrapper)
+def delete_school_level(
+    school_level_id: int = Path(..., gt=0),
+    soft_delete: bool = Query(True),
+    db: Session = Depends(get_db)
+):
+    """Delete a school level (soft delete by default)"""
+    try:
+        if soft_delete:
+            school_level = crud.school_level.soft_delete(db=db, id=school_level_id)
+        else:
+            school_level = crud.school_level.delete(db=db, id=school_level_id)
+        
+        if not school_level:
+            raise HTTPException(status_code=404, detail="School level not found")
+        
+        return schemas.ResponseWrapper(
+            message="School level deleted successfully"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# Sections Endpoints
+@app.post("/api/v1/admin/sections/", response_model=schemas.ResponseWrapper)
+def create_section(
+    section: schemas.SectionCreate,
+    db: Session = Depends(get_db)
+):
+    """Create a new section (Lower Primary, Upper Primary, etc.)"""
+    try:
+        db_section = crud.section.create(db=db, obj_in=section)
+        return schemas.ResponseWrapper(
+            message="Section created successfully",
+            data=schemas.Section.model_validate(db_section)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/sections/", response_model=schemas.ResponseWrapper)
+def list_sections(
+    school_level_id: Optional[int] = Query(None),
+    include_inactive: bool = Query(True, description="Include inactive sections"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
+):
+    """List all sections, optionally filtered by school level"""
+    try:
+        if school_level_id:
+            sections = crud.section.get_by_school_level(
+                db=db, 
+                school_level_id=school_level_id, 
+                include_inactive=include_inactive
+            )
+        else:
+            if include_inactive:
+                sections = crud.section.get_multi(db=db, skip=skip, limit=limit)
+            else:
+                sections = crud.section.get_multi(db=db, skip=skip, limit=limit, is_active=True)
+        
+        return schemas.ResponseWrapper(
+            message="Sections retrieved successfully",
+            data=[schemas.Section.model_validate(s) for s in sections],
+            total=len(sections)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/sections/{section_id}", response_model=schemas.ResponseWrapper)
+def get_section(
+    section_id: int = Path(..., gt=0),
+    include_hierarchy: bool = Query(False),
+    db: Session = Depends(get_db)
+):
+    """Get a specific section by ID"""
+    try:
+        if include_hierarchy:
+            section = crud.section.get_with_forms(db=db, section_id=section_id)
+        else:
+            section = crud.section.get(db=db, id=section_id)
+        
+        if not section:
+            raise HTTPException(status_code=404, detail="Section not found")
+        
+        return schemas.ResponseWrapper(
+            message="Section retrieved successfully",
+            data=schemas.Section.model_validate(section)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/api/v1/admin/sections/{section_id}", response_model=schemas.ResponseWrapper)
+def update_section(
+    section_update: schemas.SectionUpdate,
+    section_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """Update a section"""
+    try:
+        section = crud.section.get(db=db, id=section_id)
+        if not section:
+            raise HTTPException(status_code=404, detail="Section not found")
+        
+        updated_section = crud.section.update(db=db, db_obj=section, obj_in=section_update)
+        return schemas.ResponseWrapper(
+            message="Section updated successfully",
+            data=schemas.Section.model_validate(updated_section)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/v1/admin/sections/{section_id}", response_model=schemas.ResponseWrapper)
+def delete_section(
+    section_id: int = Path(..., gt=0),
+    soft_delete: bool = Query(True),
+    db: Session = Depends(get_db)
+):
+    """Delete a section (soft delete by default)"""
+    try:
+        section = crud.section.get(db=db, id=section_id)
+        if not section:
+            raise HTTPException(status_code=404, detail="Section not found")
+        
+        if soft_delete:
+            crud.section.soft_delete(db=db, id=section_id)
+            message = "Section deactivated successfully"
+        else:
+            crud.section.delete(db=db, id=section_id)
+            message = "Section permanently deleted successfully"
+        
+        return schemas.ResponseWrapper(message=message)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# Forms/Grades Endpoints
+@app.post("/api/v1/admin/forms-grades/", response_model=schemas.ResponseWrapper)
+def create_form_grade(
+    form_grade: schemas.FormGradeCreate,
+    db: Session = Depends(get_db)
+):
+    """Create a new form/grade"""
+    try:
+        # Check if code is unique within school level
+        existing = crud.form_grade.get_by_code(
+            db=db, code=form_grade.code, school_level_id=form_grade.school_level_id
+        )
+        if existing:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Form/Grade with code '{form_grade.code}' already exists in this school level"
+            )
+        
+        db_form_grade = crud.form_grade.create(db=db, obj_in=form_grade)
+        return schemas.ResponseWrapper(
+            message="Form/Grade created successfully",
+            data=schemas.FormGrade.model_validate(db_form_grade)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/forms-grades/", response_model=schemas.ResponseWrapper)
+def list_forms_grades(
+    school_level_id: Optional[int] = Query(None),
+    include_inactive: bool = Query(False, description="Include inactive forms/grades"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
+):
+    """List all forms/grades, optionally filtered by school level"""
+    try:
+        if school_level_id:
+            forms_grades = crud.form_grade.get_by_school_level(db=db, school_level_id=school_level_id, include_inactive=include_inactive)
+        else:
+            forms_grades = crud.form_grade.get_multi(db=db, skip=skip, limit=limit)
+        
+        return schemas.ResponseWrapper(
+            message="Forms/Grades retrieved successfully",
+            data=[schemas.FormGrade.model_validate(fg) for fg in forms_grades],
+            total=len(forms_grades)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/forms-grades/{form_grade_id}", response_model=schemas.ResponseWrapper)
+def get_form_grade(
+    form_grade_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    try:
+        form_grade = crud.form_grade.get(db=db, id=form_grade_id)
+        if not form_grade:
+            raise HTTPException(status_code=404, detail="Form grade not found")
+        return schemas.ResponseWrapper(
+            message="Form grade retrieved successfully",
+            data=schemas.FormGrade.model_validate(form_grade)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.patch("/api/v1/admin/forms-grades/{form_grade_id}", response_model=schemas.ResponseWrapper)
+def update_form_grade(
+    form_grade_update: schemas.FormGradeUpdate,
+    form_grade_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """Update a form/grade (partial update)"""
+    try:
+        db_form_grade = crud.form_grade.get(db=db, id=form_grade_id)
+        if not db_form_grade:
+            raise HTTPException(status_code=404, detail="Form/Grade not found")
+        updated_form_grade = crud.form_grade.update(
+            db=db, db_obj=db_form_grade, obj_in=form_grade_update
+        )
+        return schemas.ResponseWrapper(
+            message="Form/Grade updated successfully",
+            data=schemas.FormGrade.model_validate(updated_form_grade)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/v1/admin/forms-grades/{form_grade_id}", response_model=schemas.ResponseWrapper)
+def delete_form_grade(
+    form_grade_id: int = Path(..., gt=0),
+    soft_delete: bool = Query(True),
+    db: Session = Depends(get_db)
+):
+    """Delete a form/grade (soft delete by default, permanent if soft_delete is False)"""
+    try:
+        form_grade = crud.form_grade.get(db=db, id=form_grade_id)
+        if not form_grade:
+            raise HTTPException(status_code=404, detail="Form/Grade not found")
+        if soft_delete:
+            crud.form_grade.soft_delete(db=db, id=form_grade_id)
+            message = "Form/Grade deactivated successfully"
+        else:
+            crud.form_grade.delete(db=db, id=form_grade_id)
+            message = "Form/Grade permanently deleted successfully"
+        return schemas.ResponseWrapper(message=message)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# Terms Endpoints
+@app.post("/api/v1/admin/terms/", response_model=schemas.ResponseWrapper)
+def create_term(
+    term: schemas.TermCreate,
+    db: Session = Depends(get_db)
+):
+    """Create a new term"""
+    try:
+        print(f"Creating term with data: {term}")
+        
+        # Check if code is unique within form/grade
+        existing = crud.term.get_by_code(
+            db=db, code=term.code, form_grade_id=term.form_grade_id
+        )
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Term with code '{term.code}' already exists in this form/grade"
+            )
+        
+        db_term = crud.term.create(db=db, obj_in=term)
+        print(f"Successfully created term: {db_term}")
+        
+        return schemas.ResponseWrapper(
+            message="Term created successfully",
+            data=schemas.Term.model_validate(db_term)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error creating term: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/terms/", response_model=schemas.ResponseWrapper)
+def list_terms(
+    form_grade_id: Optional[int] = Query(None),
+    include_inactive: bool = Query(False, description="Include inactive terms"),
+    current_only: bool = Query(False),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
+):
+    """List all terms, with various filters"""
+    try:
+        print(f"Listing terms with filters: form_grade_id={form_grade_id}, include_inactive={include_inactive}")
+        
+        if form_grade_id:
+            terms = crud.term.get_by_form_grade(db=db, form_grade_id=form_grade_id, include_inactive=include_inactive)
+        elif current_only:
+            terms = crud.term.get_current_terms(db=db)
+        else:
+            if include_inactive:
+                terms = crud.term.get_multi(db=db, skip=skip, limit=limit)
+            else:
+                terms = crud.term.get_multi(db=db, skip=skip, limit=limit, is_active=True)
+        
+        print(f"Found {len(terms)} terms")
+        
+        return schemas.ResponseWrapper(
+            message="Terms retrieved successfully",
+            data=[schemas.Term.model_validate(t) for t in terms],
+            total=len(terms)
+        )
+    except Exception as e:
+        print(f"Error listing terms: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/terms/{term_id}", response_model=schemas.ResponseWrapper)
+def get_term(
+    term_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """Get a single term by ID"""
+    try:
+        print(f"Getting term with ID: {term_id}")
+        
+        term = crud.term.get(db=db, id=term_id)
+        if not term:
+            raise HTTPException(status_code=404, detail="Term not found")
+            
+        return schemas.ResponseWrapper(
+            message="Term retrieved successfully",
+            data=schemas.Term.model_validate(term)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting term: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/api/v1/admin/terms/{term_id}", response_model=schemas.ResponseWrapper)
+def update_term(
+    term_update: schemas.TermUpdate,
+    term_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """Update a term"""
+    try:
+        print(f"Updating term {term_id} with data: {term_update}")
+        
+        db_term = crud.term.get(db=db, id=term_id)
+        if not db_term:
+            raise HTTPException(status_code=404, detail="Term not found")
+        
+        # If updating code, check uniqueness within form/grade
+        if hasattr(term_update, 'code') and term_update.code and term_update.code != db_term.code:
+            existing = crud.term.get_by_code(
+                db=db, code=term_update.code, form_grade_id=db_term.form_grade_id
+            )
+            if existing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Term with code '{term_update.code}' already exists in this form/grade"
+                )
+        
+        updated_term = crud.term.update(
+            db=db, db_obj=db_term, obj_in=term_update
+        )
+        
+        print(f"Successfully updated term: {updated_term}")
+        
+        return schemas.ResponseWrapper(
+            message="Term updated successfully",
+            data=schemas.Term.model_validate(updated_term)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error updating term: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/v1/admin/terms/{term_id}", response_model=schemas.ResponseWrapper)
+def delete_term(
+    term_id: int = Path(..., gt=0),
+    soft_delete: bool = Query(True),
+    db: Session = Depends(get_db)
+):
+    """Delete a term (soft delete by default, permanent if soft_delete is False)"""
+    try:
+        print(f"Deleting term {term_id}, soft_delete={soft_delete}")
+        
+        term = crud.term.get(db=db, id=term_id)
+        if not term:
+            raise HTTPException(status_code=404, detail="Term not found")
+            
+        if soft_delete:
+            # Soft delete - mark as inactive
+            updated_term = crud.term.soft_delete(db=db, id=term_id)
+            if not updated_term:
+                raise HTTPException(status_code=404, detail="Term not found for soft delete")
+            message = "Term deactivated successfully"
+            print(f"Soft deleted term: {updated_term}")
+        else:
+            # Hard delete - permanently remove
+            deleted_term = crud.term.delete(db=db, id=term_id)
+            if not deleted_term:
+                raise HTTPException(status_code=404, detail="Term not found for deletion")
+            message = "Term permanently deleted successfully"
+            print(f"Hard deleted term: {deleted_term}")
+            
+        return schemas.ResponseWrapper(message=message)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting term: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+# Subjects Endpoints
+@app.post("/api/v1/admin/subjects/", response_model=schemas.ResponseWrapper)
+def create_subject(
+    subject: schemas.SubjectCreate,
+    db: Session = Depends(get_db)
+):
+    """Create a new subject with color and animation options"""
+    try:
+        # Check if code is unique within term
+        existing = crud.subject.get_by_code(
+            db=db, code=subject.code, term_id=subject.term_id
+        )
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Subject with code '{subject.code}' already exists in this term"
+            )
+        
+        db_subject = crud.subject.create(db=db, obj_in=subject)
+        return schemas.ResponseWrapper(
+            message="Subject created successfully",
+            data=schemas.Subject.model_validate(db_subject)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/subjects/", response_model=schemas.ResponseWrapper)
+def list_subjects(
+    term_id: Optional[int] = Query(None),
+    include_inactive: bool = Query(False, description="Include inactive subjects"),
+    search: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
+):
+    """List all subjects with search functionality"""
+    try:
+        print(f"Listing subjects with filters: term_id={term_id}, include_inactive={include_inactive}")
+        
+        if term_id:
+            # Get subjects for specific term
+            if include_inactive:
+                # Include both active and inactive subjects
+                subjects = db.query(models.Subject).filter(
+                    models.Subject.term_id == term_id
+                ).order_by(models.Subject.display_order).all()
+            else:
+                # Only active subjects
+                subjects = crud.subject.get_by_term(db=db, term_id=term_id)
+        elif search:
+            subjects = crud.subject.search_subjects(db=db, query=search)
+        else:
+            if include_inactive:
+                subjects = crud.subject.get_multi(db=db, skip=skip, limit=limit)
+            else:
+                subjects = crud.subject.get_multi(db=db, skip=skip, limit=limit, is_active=True)
+        
+        print(f"Found {len(subjects)} subjects")
+        
+        return schemas.ResponseWrapper(
+            message="Subjects retrieved successfully",
+            data=[schemas.Subject.model_validate(s) for s in subjects],
+            total=len(subjects)
+        )
+    except Exception as e:
+        print(f"Error listing subjects: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/subjects/{subject_id}", response_model=schemas.ResponseWrapper)
+def get_subject_by_id(
+    subject_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """Get a specific subject by ID"""
+    try:
+        subject = crud.subject.get(db=db, id=subject_id)
+        if not subject:
+            raise HTTPException(status_code=404, detail="Subject not found")
+        return schemas.ResponseWrapper(
+            message="Subject retrieved successfully",
+            data=schemas.Subject.model_validate(subject)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error fetching subject {subject_id}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/api/v1/admin/subjects/{subject_id}", response_model=schemas.ResponseWrapper)
+def update_subject(
+    subject_update: schemas.SubjectUpdate,
+    subject_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """Update a subject"""
+    try:
+        print(f"Updating subject {subject_id} with data: {subject_update}")
+        
+        db_subject = crud.subject.get(db=db, id=subject_id)
+        if not db_subject:
+            raise HTTPException(status_code=404, detail="Subject not found")
+        
+        updated_subject = crud.subject.update(
+            db=db, db_obj=db_subject, obj_in=subject_update
+        )
+        
+        print(f"Successfully updated subject: {updated_subject}")
+        
+        return schemas.ResponseWrapper(
+            message="Subject updated successfully",
+            data=schemas.Subject.model_validate(updated_subject)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error updating subject: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/v1/admin/subjects/{subject_id}", response_model=schemas.ResponseWrapper)
+def delete_subject(
+    subject_id: int = Path(..., gt=0),
+    soft_delete: bool = Query(True),
+    db: Session = Depends(get_db)
+):
+    """Delete a subject (soft delete by default, permanent if soft_delete is False)"""
+    try:
+        print(f"Deleting subject {subject_id}, soft_delete={soft_delete}")
+        
+        subject = crud.subject.get(db=db, id=subject_id)
+        if not subject:
+            raise HTTPException(status_code=404, detail="Subject not found")
+            
+        if soft_delete:
+            updated_subject = crud.subject.soft_delete(db=db, id=subject_id)
+            if not updated_subject:
+                raise HTTPException(status_code=404, detail="Subject not found for soft delete")
+            message = "Subject deactivated successfully"
+            print(f"Soft deleted subject: {updated_subject}")
+        else:
+            deleted_subject = crud.subject.delete(db=db, id=subject_id)
+            if not deleted_subject:
+                raise HTTPException(status_code=404, detail="Subject not found for deletion")
+            message = "Subject permanently deleted successfully"
+            print(f"Hard deleted subject: {deleted_subject}")
+            
+        return schemas.ResponseWrapper(message=message)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting subject: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+# Topics Endpoints
+@app.post("/api/v1/admin/topics/", response_model=schemas.ResponseWrapper)
+def create_topic(
+    topic: schemas.TopicCreate,
+    db: Session = Depends(get_db)
+):
+    """Create a new topic"""
+    try:
+        db_topic = crud.topic.create(db=db, obj_in=topic)
+        return schemas.ResponseWrapper(
+            message="Topic created successfully",
+            data=schemas.Topic.model_validate(db_topic)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/topics/", response_model=schemas.ResponseWrapper)
+def list_topics(
+    subject_id: Optional[int] = Query(None),
+    search: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
+):
+    """List all topics with search functionality"""
+    try:
+        if subject_id:
+            topics = crud.topic.get_by_subject(db=db, subject_id=subject_id)
+        elif search:
+            topics = crud.topic.search_topics(db=db, query=search)
+        else:
+            topics = crud.topic.get_multi(db=db, skip=skip, limit=limit)
+        
+        return schemas.ResponseWrapper(
+            message="Topics retrieved successfully",
+            data=[schemas.Topic.model_validate(t) for t in topics],
+            total=len(topics)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/topics/{topic_id}", response_model=schemas.ResponseWrapper)
+def get_topic(
+    topic_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    try:
+        topic = crud.topic.get(db=db, id=topic_id)
+        if not topic:
+            raise HTTPException(status_code=404, detail="Topic not found")
+        return schemas.ResponseWrapper(
+            message="Topic retrieved successfully",
+            data=schemas.Topic.model_validate(topic)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/topics/{topic_id}/subtopics", response_model=schemas.ResponseWrapper)
+def get_subtopics_by_topic(
+    topic_id: int = Path(..., gt=0),
+    include_inactive: bool = Query(False, description="Include inactive subtopics"),
+    db: Session = Depends(get_db)
+):
+    """Get all subtopics for a specific topic"""
+    try:
+        topic = crud.topic.get(db=db, id=topic_id)
+        if not topic:
+            raise HTTPException(status_code=404, detail="Topic not found")
+        if include_inactive:
+            subtopics = db.query(models.Subtopic).filter(
+                models.Subtopic.topic_id == topic_id
+            ).order_by(models.Subtopic.display_order).all()
+        else:
+            subtopics = crud.subtopic.get_by_topic(db=db, topic_id=topic_id)
+        return schemas.ResponseWrapper(
+            message="Subtopics retrieved successfully",
+            data=[schemas.Subtopic.model_validate(st) for st in subtopics],
+            total=len(subtopics)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/api/v1/admin/subtopics/{subtopic_id}", response_model=schemas.ResponseWrapper)
+def update_subtopic(
+    subtopic_update: schemas.SubtopicUpdate,
+    subtopic_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """Update a subtopic"""
+    try:
+        db_subtopic = crud.subtopic.get(db=db, id=subtopic_id)
+        if not db_subtopic:
+            raise HTTPException(status_code=404, detail="Subtopic not found")
+        updated_subtopic = crud.subtopic.update(
+            db=db, db_obj=db_subtopic, obj_in=subtopic_update
+        )
+        return schemas.ResponseWrapper(
+            message="Subtopic updated successfully",
+            data=schemas.Subtopic.model_validate(updated_subtopic)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/v1/admin/subtopics/{subtopic_id}", response_model=schemas.ResponseWrapper)
+def delete_subtopic(
+    subtopic_id: int = Path(..., gt=0),
+    soft_delete: bool = Query(True, description="Soft delete (deactivate) instead of permanent deletion"),
+    db: Session = Depends(get_db)
+):
+    """Delete a subtopic (soft delete by default)"""
+    try:
+        if soft_delete:
+            subtopic = crud.subtopic.soft_delete(db=db, id=subtopic_id)
+        else:
+            subtopic = crud.subtopic.delete(db=db, id=subtopic_id)
+        if not subtopic:
+            raise HTTPException(status_code=404, detail="Subtopic not found")
+        message = "Subtopic deactivated successfully" if soft_delete else "Subtopic deleted successfully"
+        return schemas.ResponseWrapper(message=message)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# Subtopics Endpoints
+@app.post("/api/v1/admin/subtopics/", response_model=schemas.ResponseWrapper)
+def create_subtopic(
+    subtopic: schemas.SubtopicCreate,
+    db: Session = Depends(get_db)
+):
+    """Create a new subtopic"""
+    try:
+        db_subtopic = crud.subtopic.create(db=db, obj_in=subtopic)
+        return schemas.ResponseWrapper(
+            message="Subtopic created successfully",
+            data=schemas.Subtopic.model_validate(db_subtopic)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/subtopics/", response_model=schemas.ResponseWrapper)
+def list_subtopics(
+    topic_id: Optional[int] = Query(None),
+    search: Optional[str] = Query(None),
+    min_lessons: Optional[int] = Query(None, ge=1),
+    max_lessons: Optional[int] = Query(None, ge=1),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
+):
+    """List all subtopics with various filters"""
+    try:
+        if topic_id:
+            subtopics = crud.subtopic.get_by_topic(db=db, topic_id=topic_id)
+        elif search:
+            subtopics = crud.subtopic.search_subtopics(db=db, query=search)
+        elif min_lessons is not None and max_lessons is not None:
+            subtopics = crud.subtopic.get_by_duration(db=db, min_lessons=min_lessons, max_lessons=max_lessons)
+        else:
+            subtopics = crud.subtopic.get_multi(db=db, skip=skip, limit=limit)
+        
+        return schemas.ResponseWrapper(
+            message="Subtopics retrieved successfully",
+            data=[schemas.Subtopic.model_validate(st) for st in subtopics],
+            total=len(subtopics)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/subtopics/{subtopic_id}", response_model=schemas.ResponseWrapper)
+def get_subtopic(
+    subtopic_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    try:
+        subtopic = crud.subtopic.get(db=db, id=subtopic_id)
+        if not subtopic:
+            raise HTTPException(status_code=404, detail="Subtopic not found")
+        return schemas.ResponseWrapper(
+            message="Subtopic retrieved successfully",
+            data=schemas.Subtopic.model_validate(subtopic)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# Utility Endpoints
+@app.get("/api/v1/admin/hierarchy/{school_id}", response_model=schemas.ResponseWrapper)
+def get_full_hierarchy(
+    school_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db)
+):
+    """Get the complete curriculum hierarchy for a school"""
+    try:
+        hierarchy_data = crud.hierarchy.get_full_hierarchy(db=db, school_id=school_id)
+        return schemas.ResponseWrapper(
+            message="Hierarchy retrieved successfully",
+            data=hierarchy_data
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/statistics/", response_model=schemas.ResponseWrapper)
+def get_statistics(
+    school_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Get curriculum statistics"""
+    try:
+        stats = crud.hierarchy.get_statistics(db=db, school_id=school_id)
+        return schemas.ResponseWrapper(
+            message="Statistics retrieved successfully",
+            data=stats
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/admin/subject-options/", response_model=schemas.ResponseWrapper)
+def get_subject_options():
+    """Get available colors, icons, and animations for subjects"""
+    try:
+        options = {
+            "colors": schemas.SubjectColors().colors,
+            "icons": schemas.SubjectIcons().icons,
+            "animations": [
+                {"name": "Bounce", "value": "bounce"},
+                {"name": "Pulse", "value": "pulse"},
+                {"name": "Shake", "value": "shake"},
+                {"name": "Swing", "value": "swing"},
+                {"name": "Flash", "value": "flash"},
+                {"name": "Fade", "value": "fade"}
+            ]
+        }
+        
+        return schemas.ResponseWrapper(
+            message="Subject options retrieved successfully",
+            data=options
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# Bulk Operations
+@app.post("/api/v1/admin/bulk/create-structure/", response_model=schemas.ResponseWrapper)
+def create_bulk_structure(
+    structure_data: dict,
+    db: Session = Depends(get_db)
+):
+    """Create multiple curriculum levels in bulk"""
+    try:
+        # Implementation for bulk creation
+        # This would allow creating entire grade structures at once
+        created_items = []
+        
+        # Example: Create multiple terms for a form/grade
+        if "terms" in structure_data:
+            for term_data in structure_data["terms"]:
+                term = crud.term.create(db=db, obj_in=term_data)
+                created_items.append({"type": "term", "data": term})
+        
+        return schemas.ResponseWrapper(
+            message=f"Bulk structure created successfully. {len(created_items)} items created.",
+            data=created_items
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ============= TIMETABLE ENDPOINTS =============
+
+@app.post("/api/timetables", response_model=schemas.ResponseWrapper, tags=["Timetables"])
+async def create_timetable(
+    timetable_data: dict,
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Create a new timetable linked to a scheme"""
+    try:
+        logger.info(f"Creating timetable for user: {user_google_id}")
+        user = get_or_create_user(db, user_google_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found and could not be created")
+        scheme_id = timetable_data.get('scheme_id')
+        if not scheme_id:
+            raise HTTPException(status_code=400, detail="scheme_id is required")
+        scheme = crud.scheme.get(db=db, id=scheme_id)
+        if not scheme or scheme.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Scheme not found or not authorized")
+        timetable_id = str(uuid.uuid4())
+        db_timetable = models.Timetable(
+            id=timetable_id,
+            user_id=user.id,
+            scheme_id=scheme_id,
+            name=timetable_data.get('name', f"{scheme.subject_name} Timetable"),
+            description=timetable_data.get('description', f"Timetable for {scheme.subject_name}"),
+            selected_topics=timetable_data.get('selected_topics', []),
+            selected_subtopics=timetable_data.get('selected_subtopics', []),
+            status='draft'
+        )
+        db.add(db_timetable)
+        slots_data = timetable_data.get('slots', [])
+        for slot_data in slots_data:
+            db_slot = models.TimetableSlot(
+                id=str(uuid.uuid4()),
+                timetable_id=timetable_id,
+                day_of_week=slot_data.get('day_of_week'),
+                time_slot=slot_data.get('time_slot'),
+                period_number=slot_data.get('period_number'),
+                topic_id=slot_data.get('topic_id'),
+                subtopic_id=slot_data.get('subtopic_id'),
+                lesson_title=slot_data.get('lesson_title'),
+                is_double_lesson=slot_data.get('is_double_lesson', False),
+                is_evening=slot_data.get('is_evening', False)
+            )
+            db.add(db_slot)
+        db.commit()
+        db.refresh(db_timetable)
+        logger.info(f"Timetable created successfully: {db_timetable.id}")
+        return schemas.ResponseWrapper(
+            success=True,
+            message="Timetable created successfully",
+            data={
+                "id": db_timetable.id,
+                "name": db_timetable.name,
+                "scheme_id": db_timetable.scheme_id,
+                "selected_topics": db_timetable.selected_topics,
+                "selected_subtopics": db_timetable.selected_subtopics,
+                "total_slots": len(slots_data),
+                "created_at": db_timetable.created_at.isoformat()
+            }
+        )
+    except HTTPException as he:
+        logger.error(f"HTTP Exception: {he.detail}")
+        raise he
+    except Exception as e:
+        logger.error(f"Error creating timetable: {str(e)}")
+        db.rollback()
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"Failed to create timetable: {str(e)}",
+            data=None
+        )
+
+@app.get("/api/timetables/by-scheme/{scheme_id}", response_model=schemas.ResponseWrapper, tags=["Timetables"])
+async def get_timetable_by_scheme(
+    scheme_id: int,
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Get timetable for a specific scheme - frontend compatible"""
+    try:
+        logger.info(f"🔍 Getting timetable for scheme {scheme_id}, user: {user_google_id}")
+        user = get_or_create_user(db, user_google_id)
+        if not user:
+            return schemas.ResponseWrapper(
+                success=False,
+                message=f"User not found and could not be created. Identifier: {user_google_id}",
+                data=None
+            )
+        
+        timetable = db.query(models.Timetable).filter(
+            models.Timetable.scheme_id == scheme_id,
+            models.Timetable.is_active == True
+        ).first()
+        
+        if not timetable:
+            logger.info(f"⚠️ No timetable found for scheme {scheme_id}, creating mock data")
+            # Create comprehensive mock data based on Biology Form 2 Term 1
+            mock_data = {
+                "id": f"mock_{scheme_id}",
+                "name": f"Biology Form 2 Term 1 Timetable",
+                "description": "Biology timetable for Form 2 students covering key topics",
+                "scheme_id": scheme_id,
+                "selected_topics": [
+                    {"id": 1, "title": "Cell Biology", "name": "Cell Biology"},
+                    {"id": 2, "title": "Nutrition in Plants and Animals", "name": "Nutrition in Plants and Animals"},
+                    {"id": 3, "title": "Transport in Plants", "name": "Transport in Plants"}
+                ],
+                "selected_subtopics": [
+                    {"id": 1, "title": "Cell Structure and Function", "name": "Cell Structure and Function", "topic_id": 1},
+                    {"id": 2, "title": "Cell Division", "name": "Cell Division", "topic_id": 1},
+                    {"id": 3, "title": "Photosynthesis", "name": "Photosynthesis", "topic_id": 2},
+                    {"id": 4, "title": "Respiration", "name": "Respiration", "topic_id": 2},
+                    {"id": 5, "title": "Water Transport", "name": "Water Transport", "topic_id": 3},
+                    {"id": 6, "title": "Mineral Salt Transport", "name": "Mineral Salt Transport", "topic_id": 3}
+                ],
+                "slots": [
+                    {
+                        "id": "slot1", "day": "Monday", "day_of_week": "Monday", "time": "08:00-09:00", "time_slot": "08:00-09:00", "period_number": 1,
+                        "topic": "Cell Biology", "topic_id": 1, "topic_name": "Cell Biology", "subtopic": "Cell Structure and Function", "subtopic_id": 1, "subtopic_name": "Cell Structure and Function",
+                        "lesson_title": "Introduction to Cell Structure", "is_double_lesson": False, "is_evening": False
+                    },
+                    {
+                        "id": "slot2", "day": "Tuesday", "day_of_week": "Tuesday", "time": "10:00-11:00", "time_slot": "10:00-11:00", "period_number": 3,
+                        "topic": "Cell Biology", "topic_id": 1, "topic_name": "Cell Biology", "subtopic": "Cell Structure and Function", "subtopic_id": 1, "subtopic_name": "Cell Structure and Function",
+                        "lesson_title": "Plant vs Animal Cells", "is_double_lesson": False, "is_evening": False
+                    },
+                    {
+                        "id": "slot3", "day": "Wednesday", "day_of_week": "Wednesday", "time": "09:00-10:00", "time_slot": "09:00-10:00", "period_number": 2,
+                        "topic": "Cell Biology", "topic_id": 1, "topic_name": "Cell Biology", "subtopic": "Cell Division", "subtopic_id": 2, "subtopic_name": "Cell Division",
+                        "lesson_title": "Mitosis and Meiosis", "is_double_lesson": False, "is_evening": False
+                    },
+                    {
+                        "id": "slot4", "day": "Thursday", "day_of_week": "Thursday", "time": "11:00-12:00", "time_slot": "11:00-12:00", "period_number": 4,
+                        "topic": "Nutrition in Plants and Animals", "topic_id": 2, "topic_name": "Nutrition in Plants and Animals", "subtopic": "Photosynthesis", "subtopic_id": 3, "subtopic_name": "Photosynthesis",
+                        "lesson_title": "Light and Dark Reactions", "is_double_lesson": False, "is_evening": False
+                    },
+                    {
+                        "id": "slot5", "day": "Friday", "day_of_week": "Friday", "time": "08:00-09:00", "time_slot": "08:00-09:00", "period_number": 1,
+                        "topic": "Nutrition in Plants and Animals", "topic_id": 2, "topic_name": "Nutrition in Plants and Animals", "subtopic": "Respiration", "subtopic_id": 4, "subtopic_name": "Respiration",
+                        "lesson_title": "Aerobic and Anaerobic Respiration", "is_double_lesson": False, "is_evening": False
+                    }
+                ],
+                "total_slots": 5,
+                "total_weeks": 12,
+                "total_lessons": 48,
+                "created_at": "2025-07-23T00:00:00Z",
+                "updated_at": "2025-07-23T00:00:00Z"
+            }
+            
+            return schemas.ResponseWrapper(
+                success=True,
+                message="No timetable found, using Biology Form 2 Term 1 mock data",
+                data=mock_data
+            )
+        
+        # Process real timetable data if exists
+        slots = db.query(models.TimetableSlot).filter(
+            models.TimetableSlot.timetable_id == timetable.id
+        ).all()
+        
+        timetable_data = {
+            "id": timetable.id,
+            "name": timetable.name,
+            "description": timetable.description,
+            "scheme_id": timetable.scheme_id,
+            "selected_topics": timetable.selected_topics or [],
+            "selected_subtopics": timetable.selected_subtopics or [],
+            "slots": [
+                {
+                    "id": slot.id,
+                    "day": slot.day_of_week,
+                    "day_of_week": slot.day_of_week,
+                    "time": slot.time_slot,
+                    "time_slot": slot.time_slot,
+                    "period_number": slot.period_number,
+                    "topic": slot.topic.title if slot.topic else "Unknown Topic",
+                    "topic_id": slot.topic_id,
+                    "topic_name": slot.topic.title if slot.topic else "Unknown Topic",
+                    "subtopic": slot.subtopic.title if slot.subtopic else "Unknown Subtopic",
+                    "subtopic_id": slot.subtopic_id,
+                    "subtopic_name": slot.subtopic.title if slot.subtopic else "Unknown Subtopic",
+                    "lesson_title": slot.lesson_title,
+                    "is_double_lesson": slot.is_double_lesson,
+                    "is_evening": slot.is_evening
+                } for slot in slots
+            ],
+            "total_slots": len(slots),
+            "total_weeks": 12,
+            "total_lessons": len(slots),
+            "created_at": timetable.created_at.isoformat() if timetable.created_at else None,
+            "updated_at": timetable.updated_at.isoformat() if timetable.updated_at else None
+        }
+        
+        return schemas.ResponseWrapper(
+            success=True,
+            message="Timetable retrieved successfully",
+            data=timetable_data
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting timetable: {str(e)}")
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"Failed to get timetable: {str(e)}",
+            data=None
+        )
+
+@app.put("/api/timetables/{timetable_id}", response_model=schemas.ResponseWrapper, tags=["Timetables"])
+async def update_timetable(
+    timetable_id: str,
+    timetable_data: dict,
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Update existing timetable"""
+    try:
+        user = get_or_create_user(db, user_google_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found and could not be created")
+        timetable = db.query(models.Timetable).filter(
+            models.Timetable.id == timetable_id,
+            models.Timetable.user_id == user.id
+        ).first()
+        if not timetable:
+            raise HTTPException(status_code=404, detail="Timetable not found")
+        if 'selected_topics' in timetable_data:
+            timetable.selected_topics = timetable_data['selected_topics']
+        if 'selected_subtopics' in timetable_data:
+            timetable.selected_subtopics = timetable_data['selected_subtopics']
+        if 'name' in timetable_data:
+            timetable.name = timetable_data['name']
+        if 'description' in timetable_data:
+            timetable.description = timetable_data['description']
+        timetable.updated_at = datetime.utcnow()
+        if 'slots' in timetable_data:
+            db.query(models.TimetableSlot).filter(
+                models.TimetableSlot.timetable_id == timetable_id
+            ).delete()
+            for slot_data in timetable_data['slots']:
+                db_slot = models.TimetableSlot(
+                    id=str(uuid.uuid4()),
+                    timetable_id=timetable_id,
+                    day_of_week=slot_data.get('day_of_week'),
+                    time_slot=slot_data.get('time_slot'),
+                    period_number=slot_data.get('period_number'),
+                    topic_id=slot_data.get('topic_id'),
+                    subtopic_id=slot_data.get('subtopic_id'),
+                    lesson_title=slot_data.get('lesson_title'),
+                    is_double_lesson=slot_data.get('is_double_lesson', False),
+                    is_evening=slot_data.get('is_evening', False)
+                )
+                db.add(db_slot)
+        db.commit()
+        db.refresh(timetable)
+        return schemas.ResponseWrapper(
+            success=True,
+            message="Timetable updated successfully",
+            data={
+                "id": timetable.id,
+                "updated_at": timetable.updated_at.isoformat()
+            }
+        )
+    except HTTPException as he:
+        logger.error(f"HTTP Exception: {he.detail}")
+        raise he
+    except Exception as e:
+        logger.error(f"Error updating timetable: {str(e)}")
+        db.rollback()
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"Failed to update timetable: {str(e)}",
+            data=None
+        )
+
+@app.post("/api/schemes/generate", response_model=schemas.ResponseWrapper, tags=["Schemes"])
+async def generate_scheme_of_work(
+    generation_data: dict,
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Generate scheme of work using AI with Biology Form 2 Term 1 context"""
+    try:
+        logger.info(f"🔍 Generating scheme for user: {user_google_id}")
+        user = get_or_create_user(db, user_google_id)
+        if not user:
+            return schemas.ResponseWrapper(
+                success=False,
+                message=f"User not found and could not be created. Identifier: {user_google_id}",
+                data=None
+            )
+        
+        # Extract context - use provided data, but ensure it's tied to the actual scheme
+        context = generation_data.get("context", {})
+        
+        # Get the scheme ID if provided to load proper scheme-specific data
+        scheme_id = context.get("schemeId")
+        if scheme_id:
+            logger.info(f"Loading scheme-specific data for scheme {scheme_id}")
+            scheme = crud.scheme.get(db=db, id=int(scheme_id))
+            if scheme and scheme.user_id == user.id:
+                # Load the actual topics and subtopics for this scheme's subject
+                subject = scheme.subject if hasattr(scheme, 'subject') else None
+                if subject:
+                    # Get topics for this subject
+                    scheme_topics = crud.topic.get_by_subject(db=db, subject_id=subject.id)
+                    scheme_topic_data = [{"id": t.id, "title": t.title} for t in scheme_topics]
+                    
+                    # Get subtopics for these topics
+                    scheme_subtopics = []
+                    for topic in scheme_topics:
+                        subtopics = crud.subtopic.get_by_topic(db=db, topic_id=topic.id)
+                        for subtopic in subtopics:
+                            scheme_subtopics.append({
+                                "id": subtopic.id, 
+                                "title": subtopic.title,
+                                "topic_id": topic.id
+                            })
+                    
+                    # Override with actual scheme data
+                    context.update({
+                        "subject_name": scheme.subject_name,
+                        "school_name": scheme.school_name,
+                        "selectedTopics": scheme_topic_data,
+                        "selectedSubtopics": scheme_subtopics,
+                        "subject_id": scheme.subject_id
+                    })
+                    logger.info(f"Updated context with {len(scheme_topic_data)} topics and {len(scheme_subtopics)} subtopics for {scheme.subject_name}")
+        
+        enhanced_context = context
+        
+        config = generation_data.get("generation_config", generation_data.get("config", {
+            "style": "detailed",
+            "curriculum_standard": "KICD",
+            "language_complexity": "intermediate"
+        }))
+        
+        subject_info = f"{enhanced_context.get('subject_name', 'Unknown')} {enhanced_context.get('form_grade', 'Unknown')} {enhanced_context.get('term', 'Unknown')}"
+        logger.info(f"✅ User found: {user.email}, generating {subject_info} scheme...")
+        logger.info(f"Context: {enhanced_context}")
+        
+        try:
+            ai_service = GroqAIService()
+            result = ai_service.generate_scheme_of_work(context=enhanced_context, config=config)
+            
+            if isinstance(result, dict) and "scheme_content" in result:
+                scheme_content = result["scheme_content"]
+                weeks_data = scheme_content.get("weeks", [])
+                
+                # Ensure we have exactly 12 weeks
+                if len(weeks_data) != 12:
+                    logger.warning(f"Generated {len(weeks_data)} weeks instead of 12, adjusting...")
+                
+                return schemas.ResponseWrapper(
+                    success=True,
+                    message=f"{subject_info} scheme generated successfully",
+                    data={
+                        "weeks": weeks_data,
+                        "metadata": result.get("metadata", {}),
+                        "scheme_header": scheme_content.get("scheme_header", {})
+                    }
+                )
+            else:
+                logger.warning("Invalid AI service response format, using fallback")
+                # Create fallback response
+                ai_service = GroqAIService()
+                fallback_result = ai_service._create_fallback_scheme(enhanced_context)
+                scheme_content = fallback_result["scheme_content"]
+                
+                return schemas.ResponseWrapper(
+                    success=True,
+                    message=f"{subject_info} scheme generated using template",
+                    data={
+                        "weeks": scheme_content["weeks"],
+                        "metadata": fallback_result.get("metadata", {}),
+                        "scheme_header": scheme_content.get("scheme_header", {})
+                    }
+                )
+                
+        except Exception as ai_error:
+            logger.error(f"AI service error: {str(ai_error)}")
+            # Return Biology-specific fallback
+            ai_service = GroqAIService()
+            fallback_result = ai_service._create_fallback_scheme(enhanced_context)
+            scheme_content = fallback_result["scheme_content"]
+            
+            return schemas.ResponseWrapper(
+                success=True,
+                message="Biology Form 2 Term 1 scheme generated using fallback template",
+                data={
+                    "weeks": scheme_content["weeks"],
+                    "metadata": fallback_result.get("metadata", {}),
+                    "scheme_header": scheme_content.get("scheme_header", {})
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"Generation error: {str(e)}")
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"Generation failed: {str(e)}",
+            data=None
+        )
+
+@app.put("/api/schemes/{scheme_id}/content", response_model=schemas.ResponseWrapper, tags=["Schemes"])
+async def save_generated_scheme_content(
+    scheme_id: int,
+    content_data: dict,
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Save generated scheme content to database"""
+    try:
+        user = crud.user.get_by_google_id(db, google_id=user_google_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        scheme = crud.scheme.get(db=db, id=scheme_id)
+        if not scheme or scheme.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Scheme not found")
+        scheme.generated_content = content_data.get("generated_content")
+        scheme.ai_model_used = content_data.get("ai_model_used", "groq-llama")
+        scheme.generation_date = datetime.utcnow()
+        scheme.is_ai_generated = True
+        scheme.generation_version = getattr(scheme, 'generation_version', 0) + 1
+        scheme.status = "completed"
+        db.commit()
+        return schemas.ResponseWrapper(
+            success=True,
+            message="Scheme content saved successfully",
+            data={"scheme_id": scheme_id, "version": scheme.generation_version}
+        )
+    except Exception as e:
+        logger.error(f"Save scheme content error: {str(e)}")
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"Save failed: {str(e)}",
+            data=None
+        )
+
+@app.post("/api/schemes/export", tags=["Schemes"])
+async def export_scheme(
+    export_data: dict,
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Export scheme to PDF or Word format"""
+    try:
+        user = crud.user.get_by_google_id(db, google_id=user_google_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        # TODO: Implement export functionality
+        # This would use libraries like reportlab for PDF or python-docx for Word
+        return schemas.ResponseWrapper(
+            success=False,
+            message="Export functionality coming soon",
+            data=None
+        )
+    except Exception as e:
+        logger.error(f"Export error: {str(e)}")
+        return schemas.ResponseWrapper(
+            success=False,
+            message=f"Export failed: {str(e)}",
+            data=None
+        )
+
+@app.get("/api/schemes/{scheme_id}/pdf", tags=["Schemes"])
+async def download_scheme_pdf(
+    scheme_id: int = Path(..., description="Scheme ID"),
+    user_google_id: str = Query(..., description="User's Google ID"),
+    db: Session = Depends(get_db)
+):
+    """Download scheme of work as PDF"""
+    try:
+        logger.info(f"📄 Generating PDF for scheme {scheme_id}, user: {user_google_id}")
+        
+        # Get user
+        user = get_or_create_user(db, user_google_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Get scheme
+        scheme = crud.scheme.get(db=db, id=scheme_id)
+        if not scheme:
+            raise HTTPException(status_code=404, detail="Scheme not found")
+        
+        if scheme.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to access this scheme")
+        
+        # Get scheme content
+        pdf_content = scheme.generated_content
+        
+        if not pdf_content:
+            # Create basic PDF content from scheme data
+            pdf_content = {
+                "scheme_header": {
+                    "school_name": scheme.school_name,
+                    "subject": scheme.subject_name,
+                    "form_grade": scheme.form_grade.name if scheme.form_grade else "Unknown Form",
+                    "term": scheme.term.name if scheme.term else "Unknown Term",
+                    "academic_year": "2025",
+                    "total_weeks": 12,
+                    "total_lessons": 36
+                },
+                "weeks": [
+                    {
+                        "week_number": i,
+                        "theme": f"Week {i} - {scheme.subject_name} Learning",
+                        "learning_focus": f"This scheme contains {scheme.subject_name} content for week {i}.",
+                        "lessons": [
+                            {
+                                "lesson_number": 1,
+                                "topic_subtopic": f"{scheme.subject_name} - Week {i} Content",
+                                "specific_objectives": [f"To learn {scheme.subject_name} concepts for week {i}"],
+                                "teaching_learning_activities": ["Q/A session", "Interactive discussion", "Practical activity"],
+                                "materials_resources": [f"{scheme.subject_name} textbook", "Charts and visual aids"],
+                                "references": f"{scheme.subject_name} textbook"
+                            }
+                        ]
+                    }
+                    for i in range(1, 13)
+                ]
+            }
+        
+        # Generate PDF using PDF service
+        from services.pdf_service import PDFService
+        pdf_service = PDFService()
+        
+        pdf_buffer = pdf_service.generate_scheme_pdf(pdf_content, {"scheme_id": scheme_id})
+        
+        # Return PDF as download
+        from fastapi.responses import StreamingResponse
+        import io
+        
+        pdf_buffer.seek(0)
+        filename = f"{scheme.subject_name}_{scheme.form_grade.name if scheme.form_grade else 'Form'}_{scheme.term.name if scheme.term else 'Term'}_Scheme.pdf"
+        
+        return StreamingResponse(
+            io.BytesIO(pdf_buffer.read()),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Error generating PDF: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
+
+# Development endpoints (remove in production)
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
+    )
+
+### backend/models.py ###
+# backend/models.py
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from sqlalchemy.types import TypeDecorator, Text as SQLText
+from datetime import datetime
+import json
+import uuid
+
+from base import Base
+
+# Custom JSON type for SQLite compatibility
+class JSONType(TypeDecorator):
+    impl = SQLText
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            return json.dumps(value)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            return json.loads(value)
+        return value
+
+# User model for Google authenticated users
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    google_id = Column(String(255), unique=True, nullable=False, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    picture = Column(String(500))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    last_login = Column(DateTime)
+    
+    # Relationships
+    schemes = relationship("SchemeOfWork", back_populates="user", cascade="all, delete-orphan")
+    lesson_plans = relationship("LessonPlan", back_populates="user", cascade="all, delete-orphan")
+    timetables = relationship("Timetable", back_populates="user")
+
+# Scheme of Work model
+class SchemeOfWork(Base):
+    @property
+    def form_grade_name(self):
+        """Frontend expects form_grade_name"""
+        return self.form_grade.name if self.form_grade else None
+
+    @property
+    def term_name(self):
+        """Frontend expects term_name"""
+        return self.term.name if self.term else None
+
+    @property
+    def school_level_name(self):
+        """Useful for frontend display"""
+        return self.school_level.name if self.school_level else None
+
+    @property
+    def academic_year(self):
+        """Frontend expects academic_year"""
+        if hasattr(self, '_academic_year') and self._academic_year:
+            return self._academic_year
+        # Extract from created_at or use current year
+        if self.created_at:
+            return str(self.created_at.year)
+        from datetime import datetime
+        return str(datetime.now().year)
+    __tablename__ = "schemes_of_work"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    school_name = Column(String(255), nullable=False)
+    subject_name = Column(String(150), nullable=False)
+    status = Column(String(50), default="draft")  # draft, in-progress, completed
+    progress = Column(Integer, default=0)  # 0-100
+    content = Column(JSONType)  # Store scheme content as JSON
+    scheme_metadata = Column(JSONType)  # Additional metadata - RENAMED from 'metadata'
+    
+    # AI generation fields - ADD THESE IF NOT PRESENT
+    generated_content = Column(JSONType, nullable=True)
+    ai_model_used = Column(String(100), nullable=True)
+    generation_metadata = Column(JSONType, nullable=True)
+    generation_date = Column(DateTime, nullable=True)
+    generation_version = Column(Integer, default=1)
+    is_ai_generated = Column(Boolean, default=False)
+    
+    # Foreign Keys
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    school_level_id = Column(Integer, ForeignKey("school_levels.id"), nullable=False)
+    form_grade_id = Column(Integer, ForeignKey("forms_grades.id"), nullable=False)
+    term_id = Column(Integer, ForeignKey("terms.id"), nullable=False)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    due_date = Column(DateTime)
+    
+    # Relationships
+    user = relationship("User", back_populates="schemes")
+    school_level = relationship("SchoolLevel")
+    form_grade = relationship("FormGrade")
+    term = relationship("Term")
+    subject = relationship("Subject")
+    lesson_plans = relationship("LessonPlan", back_populates="scheme", cascade="all, delete-orphan")
+    timetables = relationship("Timetable", back_populates="scheme")
+
+    def to_dict(self):
+        """Updated to_dict method to include frontend-expected fields"""
+        return {
+            "id": self.id,
+            "school_name": self.school_name,
+            "subject_name": self.subject_name,
+            "form_grade": self.form_grade.name if self.form_grade else None,
+            "form_grade_name": self.form_grade_name,  # Frontend expects this
+            "term": self.term.name if self.term else None,
+            "term_name": self.term_name,  # Frontend expects this
+            "school_level_name": self.school_level_name,
+            "academic_year": self.academic_year,  # Frontend expects this
+            "status": self.status,
+            "progress": self.progress,
+            "content": self.content,
+            "scheme_metadata": self.scheme_metadata,
+            "generated_content": self.generated_content,
+            "ai_model_used": self.ai_model_used,
+            "generation_metadata": self.generation_metadata,
+            "generation_date": self.generation_date.isoformat() if self.generation_date else None,
+            "generation_version": self.generation_version,
+            "is_ai_generated": self.is_ai_generated,
+            "user_id": self.user_id,
+            "school_level_id": self.school_level_id,
+            "form_grade_id": self.form_grade_id,
+            "term_id": self.term_id,
+            "subject_id": self.subject_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "due_date": self.due_date.isoformat() if self.due_date else None,
+        }
+
+# Lesson Plan model
+class LessonPlan(Base):
+    __tablename__ = "lesson_plans"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    content = Column(JSONType)  # Store lesson content as JSON
+    objectives = Column(JSONType)  # Learning objectives
+    activities = Column(JSONType)  # Lesson activities
+    resources = Column(JSONType)  # Required resources
+    assessment = Column(JSONType)  # Assessment methods
+    duration_minutes = Column(Integer, default=40)
+    lesson_number = Column(Integer, default=1)
+    
+    # Foreign Keys
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    scheme_id = Column(Integer, ForeignKey("schemes_of_work.id"), nullable=False)
+    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=True)
+    subtopic_id = Column(Integer, ForeignKey("subtopics.id"), nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    scheduled_date = Column(DateTime)
+    
+    # Relationships
+    user = relationship("User", back_populates="lesson_plans")
+    scheme = relationship("SchemeOfWork", back_populates="lesson_plans")
+    topic = relationship("Topic")
+    subtopic = relationship("Subtopic")
+
+class School(Base):
+    __tablename__ = "schools"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False, index=True)
+    code = Column(String(50), unique=True, nullable=False)
+    address = Column(Text)
+    phone = Column(String(20))
+    email = Column(String(255))
+    logo_url = Column(String(500))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    school_levels = relationship("SchoolLevel", back_populates="school", cascade="all, delete-orphan")
+
+class SchoolLevel(Base):
+    __tablename__ = "school_levels"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)  # Primary, Secondary, High School
+    code = Column(String(20), nullable=False)  # PS, SS, HS, etc.
+    description = Column(Text)
+    display_order = Column(Integer, default=0)
+    school_id = Column(Integer, ForeignKey("schools.id"), nullable=False)
+    grade_type = Column(String(20), default="grade")  # "form" or "grade"
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    school = relationship("School", back_populates="school_levels")
+    sections = relationship("Section", back_populates="school_level", cascade="all, delete-orphan")
+    forms_grades = relationship("FormGrade", back_populates="school_level", cascade="all, delete-orphan")
+
+class Section(Base):
+    __tablename__ = "sections"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)  # Lower Primary, Upper Primary, etc.
+    description = Column(Text)
+    display_order = Column(Integer, default=0)
+    school_level_id = Column(Integer, ForeignKey("school_levels.id"), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    school_level = relationship("SchoolLevel", back_populates="sections")
+
+class FormGrade(Base):
+    __tablename__ = "forms_grades"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)  # Form 1, Grade 1, etc.
+    code = Column(String(20), nullable=False)  # F1, G1, etc.
+    description = Column(Text)
+    display_order = Column(Integer, default=0)
+    school_level_id = Column(Integer, ForeignKey("school_levels.id"), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    school_level = relationship("SchoolLevel", back_populates="forms_grades")
+    terms = relationship("Term", back_populates="form_grade", cascade="all, delete-orphan")
+
+class Term(Base):
+    __tablename__ = "terms"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)  # Term 1, Term 2, etc.
+    code = Column(String(20), nullable=False)  # T1, T2, etc.
+    start_date = Column(DateTime)
+    end_date = Column(DateTime)
+    display_order = Column(Integer, default=0)
+    form_grade_id = Column(Integer, ForeignKey("forms_grades.id"), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    form_grade = relationship("FormGrade", back_populates="terms")
+    subjects = relationship("Subject", back_populates="term", cascade="all, delete-orphan")
+
+class Subject(Base):
+    __tablename__ = "subjects"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(150), nullable=False)  # Mathematics, English, etc.
+    code = Column(String(20), nullable=False)  # MATH, ENG, etc.
+    description = Column(Text)
+    color = Column(String(7), default="#3B82F6")  # Hex color for theming
+    icon = Column(String(50), default="book")  # Icon name for animations
+    animation_type = Column(String(50), default="bounce")  # Animation preference
+    display_order = Column(Integer, default=0)
+    term_id = Column(Integer, ForeignKey("terms.id"), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    term = relationship("Term", back_populates="subjects")
+    topics = relationship("Topic", back_populates="subject", cascade="all, delete-orphan")
+
+class Topic(Base):
+    __tablename__ = "topics"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text)
+    learning_objectives = Column(JSONType)  # Store as JSON using custom type
+    duration_weeks = Column(Integer, default=1)
+    display_order = Column(Integer, default=0)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    subject = relationship("Subject", back_populates="topics")
+    subtopics = relationship("Subtopic", back_populates="topic", cascade="all, delete-orphan")
+
+class Subtopic(Base):
+    __tablename__ = "subtopics"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    content = Column(Text)
+    activities = Column(JSONType)  # Store activities as JSON using custom type
+    assessment_criteria = Column(JSONType)  # Assessment criteria as JSON using custom type
+    resources = Column(JSONType)  # Learning resources as JSON using custom type
+    duration_lessons = Column(Integer, default=1)
+    display_order = Column(Integer, default=0)
+    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    topic = relationship("Topic", back_populates="subtopics")
+
+# Admin User model for authentication
+class AdminUser(Base):
+    __tablename__ = "admin_users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(100), unique=True, nullable=False, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    full_name = Column(String(255))
+    is_active = Column(Boolean, default=True)
+    is_superuser = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=func.now())
+    last_login = Column(DateTime)
+
+# --- Timetable Models for Save & Continue System ---
+class Timetable(Base):
+    __tablename__ = "timetables"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    scheme_id = Column(Integer, ForeignKey("schemes_of_work.id"), nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
+    status = Column(String(50), default="draft")
+    selected_topics = Column(JSONType)
+    selected_subtopics = Column(JSONType)
+    total_lessons = Column(Integer, default=0)
+    total_weeks = Column(Integer, default=0)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    is_active = Column(Boolean, default=True)
+    # Simple relationships without back_populates/backref
+    user = relationship("User", back_populates="timetables")
+    scheme = relationship("SchemeOfWork", back_populates="timetables")
+    slots = relationship("TimetableSlot", back_populates="timetable", cascade="all, delete-orphan")
+
+class TimetableSlot(Base):
+    __tablename__ = "timetable_slots"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    timetable_id = Column(String, ForeignKey("timetables.id", ondelete="CASCADE"), nullable=False)
+    day_of_week = Column(String(10), nullable=False)
+    time_slot = Column(String(20), nullable=False)
+    period_number = Column(Integer, nullable=False)
+    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=True)
+    subtopic_id = Column(Integer, ForeignKey("subtopics.id"), nullable=True)
+    lesson_title = Column(String(255))
+    lesson_objectives = Column(Text)
+    activities = Column(JSONType)
+    resources = Column(JSONType)
+    assessment_notes = Column(Text)
+    is_double_lesson = Column(Boolean, default=False)
+    double_position = Column(String(10))
+    is_evening = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=func.now())
+    timetable = relationship("Timetable", back_populates="slots")
+    topic = relationship("Topic")
+    subtopic = relationship("Subtopic")
+
+### backend/schemas.py ###
+# backend/schemas.py
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from datetime import datetime
+
+# Base schema with configuration
+class BaseSchema(BaseModel):
+    model_config = ConfigDict(
+        from_attributes=True,
+        arbitrary_types_allowed=True,
+        use_enum_values=True
+    )
+
+# ============= RESPONSE WRAPPER =============
+
+class ResponseWrapper(BaseSchema):
+    success: bool = Field(default=True, description="Whether the request was successful")
+    message: str = Field(..., description="Response message")
+    data: Optional[Any] = Field(None, description="Response data")
+    total: Optional[int] = Field(None, description="Total count for paginated responses")
+    errors: Optional[Dict[str, Any]] = Field(None, description="Error details if any")
+
+# ============= USER SCHEMAS =============
+
+class UserBase(BaseSchema):
+    email: EmailStr = Field(..., description="Email address")
+    name: str = Field(..., min_length=1, max_length=255, description="Full name")
+    picture: Optional[str] = Field(None, max_length=500, description="Profile picture URL")
+
+class UserCreate(UserBase):
+    google_id: str = Field(..., description="Google ID")
+
+class UserUpdate(BaseSchema):
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    picture: Optional[str] = Field(None, max_length=500)
+    is_active: Optional[bool] = None
+
+class User(UserBase):
+    id: int
+    google_id: str
+    is_active: bool
+    created_at: datetime
+    last_login: Optional[datetime] = None
+
+# ============= SCHEME OF WORK SCHEMAS =============
+
+class SchemeOfWorkBase(BaseSchema):
+    school_name: str = Field(..., min_length=1, max_length=255, description="School name")
+    subject_name: str = Field(..., min_length=1, max_length=150, description="Subject name")
+    status: str = Field(default="draft", description="Scheme status")
+    progress: int = Field(default=0, ge=0, le=100, description="Progress percentage")
+    content: Optional[Dict[str, Any]] = Field(None, description="Scheme content")
+    scheme_metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
+
+class SchemeOfWorkCreate(SchemeOfWorkBase):
+    school_level_id: int = Field(..., gt=0, description="School level ID")
+    form_grade_id: int = Field(..., gt=0, description="Form/Grade ID")
+    term_id: int = Field(..., gt=0, description="Term ID")
+    subject_id: int = Field(..., gt=0, description="Subject ID")  # Now required
+    due_date: Optional[datetime] = Field(None, description="Due date")
+    user_email: Optional[str] = None
+    user_name: Optional[str] = None
+    user_picture: Optional[str] = None
+
+class SchemeOfWorkUpdate(BaseSchema):
+    school_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    subject_name: Optional[str] = Field(None, min_length=1, max_length=150)
+    status: Optional[str] = None
+    progress: Optional[int] = Field(None, ge=0, le=100)
+    content: Optional[Dict[str, Any]] = None
+    scheme_metadata: Optional[Dict[str, Any]] = None
+    due_date: Optional[datetime] = None
+
+class SchemeOfWorkResponse(SchemeOfWorkBase):
+    id: int
+    user_id: int
+    school_level_id: int
+    form_grade_id: int
+    term_id: int
+    subject_id: Optional[int] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    due_date: Optional[datetime] = None
+    generated_content: Optional[Dict[str, Any]] = None
+    ai_model_used: Optional[str] = None
+    generation_metadata: Optional[Dict[str, Any]] = None
+    generation_date: Optional[datetime] = None
+    generation_version: Optional[int] = 1
+    is_ai_generated: Optional[bool] = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+# Alias for backward compatibility
+SchemeOfWork = SchemeOfWorkResponse
+
+# ============= LESSON PLAN SCHEMAS =============
+
+class LessonPlanBase(BaseSchema):
+    title: str = Field(..., min_length=1, max_length=255, description="Lesson title")
+    content: Optional[Dict[str, Any]] = Field(None, description="Lesson content")
+    objectives: Optional[List[str]] = Field(None, description="Learning objectives")
+    activities: Optional[List[Dict[str, Any]]] = Field(None, description="Lesson activities")
+    resources: Optional[List[str]] = Field(None, description="Required resources")
+    assessment: Optional[Dict[str, Any]] = Field(None, description="Assessment methods")
+    duration_minutes: int = Field(default=40, ge=1, le=480, description="Lesson duration in minutes")
+    lesson_number: int = Field(default=1, ge=1, description="Lesson number in sequence")
+
+class LessonPlanCreate(LessonPlanBase):
+    scheme_id: int = Field(..., gt=0, description="Scheme of work ID")
+    topic_id: Optional[int] = Field(None, gt=0, description="Topic ID")
+    subtopic_id: Optional[int] = Field(None, gt=0, description="Subtopic ID")
+    scheduled_date: Optional[datetime] = Field(None, description="Scheduled date")
+
+class LessonPlanUpdate(BaseSchema):
+    title: Optional[str] = Field(None, min_length=1, max_length=255)
+    content: Optional[Dict[str, Any]] = None
+    objectives: Optional[List[str]] = None
+    activities: Optional[List[Dict[str, Any]]] = None
+    resources: Optional[List[str]] = None
+    assessment: Optional[Dict[str, Any]] = None
+    duration_minutes: Optional[int] = Field(None, ge=1, le=480)
+    lesson_number: Optional[int] = Field(None, ge=1)
+    scheduled_date: Optional[datetime] = None
+
+class LessonPlan(LessonPlanBase):
+    id: int
+    user_id: int
+    scheme_id: int
+    topic_id: Optional[int]
+    subtopic_id: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+    scheduled_date: Optional[datetime]
+
+# ============= SCHOOL SCHEMAS =============
+
+class SchoolBase(BaseSchema):
+    name: str = Field(..., min_length=1, max_length=255, description="School name")
+    code: str = Field(..., min_length=1, max_length=50, description="School code")
+    address: Optional[str] = Field(None, description="School address")
+    phone: Optional[str] = Field(None, max_length=20, description="Phone number")
+    email: Optional[EmailStr] = Field(None, description="School email")
+    logo_url: Optional[str] = Field(None, max_length=500, description="Logo URL")
+    is_active: bool = Field(default=True, description="Whether the school is active")
+
+class SchoolCreate(SchoolBase):
+    pass
+
+class SchoolUpdate(BaseSchema):
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    code: Optional[str] = Field(None, min_length=1, max_length=50)
+    address: Optional[str] = None
+    phone: Optional[str] = Field(None, max_length=20)
+    email: Optional[EmailStr] = None
+    logo_url: Optional[str] = Field(None, max_length=500)
+    is_active: Optional[bool] = None
+
+class School(SchoolBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+# ============= SCHOOL LEVEL SCHEMAS =============
+
+class SchoolLevelBase(BaseSchema):
+    name: str = Field(..., min_length=1, max_length=100, description="School level name")
+    code: str = Field(..., min_length=1, max_length=20, description="School level code")
+    description: Optional[str] = Field(None, description="Description of the school level")
+    display_order: int = Field(default=0, ge=0, description="Display order")
+    grade_type: str = Field(default="grade", description="Type: 'form' or 'grade'")
+    is_active: bool = Field(default=True, description="Whether the school level is active")
+
+class SchoolLevelCreate(SchoolLevelBase):
+    school_id: int = Field(default=1, gt=0, description="School ID")
+
+class SchoolLevelUpdate(BaseSchema):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    code: Optional[str] = Field(None, min_length=1, max_length=20)
+    description: Optional[str] = None
+    display_order: Optional[int] = Field(None, ge=0)
+    grade_type: Optional[str] = None
+    is_active: Optional[bool] = None
+    school_id: Optional[int] = Field(None, gt=0)
+
+class SchoolLevel(SchoolLevelBase):
+    id: int
+    school_id: int
+    created_at: datetime
+    updated_at: datetime
+
+# ============= SECTION SCHEMAS =============
+
+class SectionBase(BaseSchema):
+    name: str = Field(..., min_length=1, max_length=100, description="Section name")
+    description: Optional[str] = Field(None, description="Section description")
+    display_order: int = Field(default=0, ge=0, description="Display order")
+    is_active: bool = Field(default=True, description="Whether the section is active")
+
+class SectionCreate(SectionBase):
+    school_level_id: int = Field(..., gt=0, description="School level ID")
+
+class SectionUpdate(BaseSchema):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    display_order: Optional[int] = Field(None, ge=0)
+    school_level_id: Optional[int] = Field(None, gt=0)
+    is_active: Optional[bool] = None
+
+class Section(SectionBase):
+    id: int
+    school_level_id: int
+    created_at: datetime
+    updated_at: datetime
+
+# ============= FORM GRADE SCHEMAS =============
+
+class FormGradeBase(BaseSchema):
+    name: str = Field(..., min_length=1, max_length=100, description="Form/Grade name")
+    code: str = Field(..., min_length=1, max_length=20, description="Form/Grade code")
+    description: Optional[str] = Field(None, description="Form/Grade description")
+    display_order: int = Field(default=0, ge=0, description="Display order")
+    is_active: bool = Field(default=True, description="Whether the form/grade is active")
+
+class FormGradeCreate(FormGradeBase):
+    school_level_id: int = Field(..., gt=0, description="School level ID")
+
+class FormGradeUpdate(BaseSchema):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    code: Optional[str] = Field(None, min_length=1, max_length=20)
+    description: Optional[str] = None
+    display_order: Optional[int] = Field(None, ge=0)
+    school_level_id: Optional[int] = Field(None, gt=0)
+    is_active: Optional[bool] = None
+
+class FormGrade(FormGradeBase):
+    id: int
+    school_level_id: int
+    created_at: datetime
+    updated_at: datetime
+
+# ============= TERM SCHEMAS =============
+
+class TermBase(BaseSchema):
+    name: str = Field(..., min_length=1, max_length=100, description="Term name")
+    code: str = Field(..., min_length=1, max_length=20, description="Term code")
+    start_date: Optional[datetime] = Field(None, description="Term start date")
+    end_date: Optional[datetime] = Field(None, description="Term end date")
+    display_order: int = Field(default=0, ge=0, description="Display order")
+    is_active: bool = Field(default=True, description="Whether the term is active")
+
+class TermCreate(TermBase):
+    form_grade_id: int = Field(..., gt=0, description="Form/Grade ID")
+
+class TermUpdate(BaseSchema):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    code: Optional[str] = Field(None, min_length=1, max_length=20)
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    display_order: Optional[int] = Field(None, ge=0)
+    form_grade_id: Optional[int] = Field(None, gt=0)
+    is_active: Optional[bool] = None
+
+class Term(TermBase):
+    id: int
+    form_grade_id: int
+    created_at: datetime
+    updated_at: datetime
+
+# ============= SUBJECT SCHEMAS =============
+
+class SubjectBase(BaseSchema):
+    name: str = Field(..., min_length=1, max_length=150, description="Subject name")
+    code: str = Field(..., min_length=1, max_length=20, description="Subject code")
+    description: Optional[str] = Field(None, description="Subject description")
+    color: str = Field(default="#3B82F6", description="Subject color (hex)")
+    icon: str = Field(default="book", description="Subject icon")
+    animation_type: str = Field(default="bounce", description="Animation type")
+    display_order: int = Field(default=0, ge=0, description="Display order")
+    is_active: bool = Field(default=True, description="Whether the subject is active")
+
+class SubjectCreate(SubjectBase):
+    term_id: int = Field(..., gt=0, description="Term ID")
+
+class SubjectUpdate(BaseSchema):
+    name: Optional[str] = Field(None, min_length=1, max_length=150)
+    code: Optional[str] = Field(None, min_length=1, max_length=20)
+    description: Optional[str] = None
+    color: Optional[str] = None
+    icon: Optional[str] = None
+    animation_type: Optional[str] = None
+    display_order: Optional[int] = Field(None, ge=0)
+    term_id: Optional[int] = Field(None, gt=0)
+    is_active: Optional[bool] = None
+
+class Subject(SubjectBase):
+    id: int
+    term_id: int
+    created_at: datetime
+    updated_at: datetime
+
+# ============= TOPIC SCHEMAS =============
+
+class TopicBase(BaseSchema):
+    title: str = Field(..., min_length=1, max_length=255, description="Topic title")  # Restored as required
+    description: Optional[str] = Field(None, description="Topic description")
+    learning_objectives: Optional[List[str]] = Field(None, description="Learning objectives")
+    duration_weeks: int = Field(default=1, ge=1, le=52, description="Duration in weeks")
+    display_order: int = Field(default=0, ge=0, description="Display order")
+    is_active: bool = Field(default=True, description="Whether the topic is active")
+
+class TopicCreate(TopicBase):
+    subject_id: int = Field(..., gt=0, description="Subject ID")
+
+class TopicUpdate(BaseSchema):
+    title: Optional[str] = Field(None, min_length=1, max_length=255)  # Restored as optional
+    description: Optional[str] = None
+    learning_objectives: Optional[List[str]] = None
+    duration_weeks: Optional[int] = Field(None, ge=1, le=52)
+    display_order: Optional[int] = Field(None, ge=0)
+    subject_id: Optional[int] = Field(None, gt=0)
+    is_active: Optional[bool] = None
+
+class Topic(TopicBase):
+    id: int
+    subject_id: int
+    created_at: datetime
+    updated_at: datetime
+
+# ============= SUBTOPIC SCHEMAS =============
+
+class SubtopicBase(BaseSchema):
+    title: str = Field(..., min_length=1, max_length=255, description="Subtopic title")  # Restored as required
+    content: Optional[str] = Field(None, description="Subtopic content")
+    activities: Optional[List[Dict[str, Any]]] = Field(None, description="Learning activities")
+    assessment_criteria: Optional[List[Dict[str, Any]]] = Field(None, description="Assessment criteria")
+    resources: Optional[List[Dict[str, Any]]] = Field(None, description="Learning resources")
+    duration_lessons: int = Field(default=1, ge=1, le=100, description="Duration in lessons")
+    display_order: int = Field(default=0, ge=0, description="Display order")
+    is_active: bool = Field(default=True, description="Whether the subtopic is active")
+
+class SubtopicCreate(SubtopicBase):
+    topic_id: int = Field(..., gt=0, description="Topic ID")
+
+class SubtopicUpdate(BaseSchema):
+    title: Optional[str] = Field(None, min_length=1, max_length=255)  # Restored as optional
+    content: Optional[str] = None
+    activities: Optional[List[Dict[str, Any]]] = None
+    assessment_criteria: Optional[List[Dict[str, Any]]] = None
+    resources: Optional[List[Dict[str, Any]]] = None
+    duration_lessons: Optional[int] = Field(None, ge=1, le=100)
+    display_order: Optional[int] = Field(None, ge=0)
+    topic_id: Optional[int] = Field(None, gt=0)
+    is_active: Optional[bool] = None
+
+class Subtopic(SubtopicBase):
+    id: int
+    topic_id: int
+    created_at: datetime
+    updated_at: datetime
+
+# ============= ADMIN USER SCHEMAS =============
+
+class AdminUserBase(BaseSchema):
+    username: str = Field(..., min_length=3, max_length=100, description="Username")
+    email: EmailStr = Field(..., description="Email address")
+    full_name: Optional[str] = Field(None, max_length=255, description="Full name")
+    is_active: bool = Field(default=True, description="Whether the user is active")
+    is_superuser: bool = Field(default=False, description="Whether the user is a superuser")
+
+class AdminUserCreate(AdminUserBase):
+    password: str = Field(..., min_length=6, description="Password")
+
+class AdminUserUpdate(BaseSchema):
+    username: Optional[str] = Field(None, min_length=3, max_length=100)
+    email: Optional[EmailStr] = None
+    full_name: Optional[str] = Field(None, max_length=255)
+    is_active: Optional[bool] = None
+    is_superuser: Optional[bool] = None
+    password: Optional[str] = Field(None, min_length=6)
+
+class AdminUser(AdminUserBase):
+    id: int
+    created_at: datetime
+    last_login: Optional[datetime] = None
+
+# ============= NESTED SCHEMAS FOR HIERARCHY =============
+
+class SubtopicWithoutTopic(BaseSchema):
+    id: int
+    title: str
+    content: Optional[str]
+    activities: Optional[List[Dict[str, Any]]]
+    assessment_criteria: Optional[List[Dict[str, Any]]]
+    resources: Optional[List[Dict[str, Any]]]
+    duration_lessons: int
+    display_order: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+class TopicWithSubtopics(Topic):
+    subtopics: List[SubtopicWithoutTopic] = []
+
+class SubjectWithTopics(Subject):
+    topics: List[TopicWithSubtopics] = []
+
+class TermWithSubjects(Term):
+    subjects: List[SubjectWithTopics] = []
+
+class FormGradeWithTerms(FormGrade):
+    terms: List[TermWithSubjects] = []
+
+class SchoolLevelWithHierarchy(SchoolLevel):
+    forms_grades: List[FormGradeWithTerms] = []
+
+# ============= UTILITY SCHEMAS =============
+
+class SubjectColors(BaseSchema):
+    colors: List[Dict[str, str]] = [
+        {"name": "Blue", "value": "#3B82F6"},
+        {"name": "Red", "value": "#EF4444"},
+        {"name": "Green", "value": "#10B981"},
+        {"name": "Yellow", "value": "#F59E0B"},
+        {"name": "Purple", "value": "#8B5CF6"},
+        {"name": "Pink", "value": "#EC4899"},
+        {"name": "Indigo", "value": "#6366F1"},
+        {"name": "Orange", "value": "#F97316"},
+        {"name": "Teal", "value": "#14B8A6"},
+        {"name": "Gray", "value": "#6B7280"}
+    ]
+
+class SubjectIcons(BaseSchema):
+    icons: List[Dict[str, str]] = [
+        {"name": "Book", "value": "book"},
+        {"name": "Calculator", "value": "calculator"},
+        {"name": "Globe", "value": "globe"},
+        {"name": "Microscope", "value": "microscope"},
+        {"name": "Palette", "value": "palette"},
+        {"name": "Music", "value": "music"},
+        {"name": "Dumbbell", "value": "dumbbell"},
+        {"name": "Computer", "value": "computer"},
+        {"name": "Language", "value": "language"},
+        {"name": "Heart", "value": "heart"}
+    ]
+
+# ============= PAGINATION SCHEMAS =============
+
+class PaginationParams(BaseSchema):
+    skip: int = Field(default=0, ge=0, description="Number of items to skip")
+    limit: int = Field(default=100, ge=1, le=500, description="Number of items to return")
+
+class PaginatedResponse(BaseSchema):
+    items: List[Any]
+    total: int
+    skip: int
+    limit: int
+    has_next: bool
+    has_previous: bool
+
+class SchemeGenerationConfig(BaseModel):
+    model: str = "llama3-8b-8192"
+    style: str = "detailed"
+    curriculum_standard: str = "KICD"
+    language_complexity: str = "intermediate"
+
+class SchemeGenerationRequest(BaseModel):
+    context: Dict[str, Any]
+    config: SchemeGenerationConfig
+    user_google_id: str
+
+class SchemeLesson(BaseModel):
+    lesson_number: int
+    topic_subtopic: str
+    specific_objectives: List[str]
+    teaching_learning_activities: List[str]
+    materials_resources: List[str]
+    references: str
+    remarks: str = ""
+
+class SchemeWeek(BaseModel):
+    week_number: int
+    theme: Optional[str] = None
+    lessons: List[SchemeLesson]
+
+class GeneratedSchemeContent(BaseModel):
+    scheme_header: Optional[Dict[str, Any]] = None
+    weeks: List[SchemeWeek]
+    metadata: Optional[Dict[str, Any]] = None
+
+class SchemeContentSaveRequest(BaseModel):
+    generated_content: GeneratedSchemeContent
+    ai_model_used: str
+    user_google_id: str
+
+### frontend/src/lib/apiClient.ts ###
+// /frontend/src/lib/apiClient.ts
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+interface RequestOptions extends RequestInit {
+  params?: Record<string, string | number | boolean>;
+}
+
+class ApiClient {
+  private baseURL: string;
+  
+  constructor() {
+    this.baseURL = API_BASE_URL;
+  }
+
+  private buildURL(endpoint: string, params?: Record<string, string | number | boolean>): string {
+    const url = new URL(`${this.baseURL}${endpoint}`);
+    
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        url.searchParams.append(key, String(value));
+      });
+    }
+    
+    return url.toString();
+  }
+
+  async request<T = any>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+    const { params, ...fetchOptions } = options;
+    const url = this.buildURL(endpoint, params);
+    
+    const config: RequestInit = {
+      headers: {
+        'Content-Type': 'application/json',
+        ...fetchOptions.headers,
+      },
+      ...fetchOptions,
+    };
+
+    try {
+      console.log(`Making ${config.method || 'GET'} request to:`, url);
+      
+      const response = await fetch(url, config);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage;
+        
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.detail || errorJson.message || `HTTP ${response.status}`;
+        } catch {
+          errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`;
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        return await response.json();
+      } else {
+        return await response.text() as T;
+      }
+    } catch (error) {
+      console.error('API request failed:', error);
+      
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error('Cannot connect to backend server. Make sure your FastAPI server is running on localhost:8000');
+      }
+      
+      throw error;
+    }
+  }
+
+  // Convenience methods
+  async get<T = any>(endpoint: string, params?: Record<string, string | number | boolean>): Promise<T> {
+    return this.request<T>(endpoint, { method: 'GET', params });
+  }
+
+  async post<T = any>(endpoint: string, data?: any, params?: Record<string, string | number | boolean>): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'POST',
+      body: data ? JSON.stringify(data) : undefined,
+      params,
+    });
+  }
+
+  async put<T = any>(endpoint: string, data?: any, params?: Record<string, string | number | boolean>): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'PUT',
+      body: data ? JSON.stringify(data) : undefined,
+      params,
+    });
+  }
+
+  async delete<T = any>(endpoint: string, params?: Record<string, string | number | boolean>): Promise<T> {
+    return this.request<T>(endpoint, { method: 'DELETE', params });
+  }
+}
+
+const apiClient = new ApiClient();
+export default apiClient;
+

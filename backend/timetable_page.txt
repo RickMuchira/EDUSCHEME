@@ -53,57 +53,10 @@ import { useTimetableAnalytics } from './hooks/useTimetableAnalytics'
 import { TimetableData, LessonSlot } from './types/timetable'
 import apiClient from '@/lib/apiClient'
 
-// Helper to get user id from session with enhanced debugging
+// Helper to get user id from session
 function getUserIdFromSession(session: any): string | undefined {
-  if (!session?.user) {
-    console.warn('⚠️ No session or user found')
-    return undefined
-  }
-  
-  const userIdentifier = session.user.id || (session.user as any).sub || session.user.email
-  console.log('🔍 User identification details:', {
-    userFound: !!session.user,
-    id: session.user.id,
-    sub: (session.user as any).sub,
-    email: session.user.email,
-    name: session.user.name,
-    finalIdentifier: userIdentifier,
-    sessionKeys: Object.keys(session.user || {})
-  })
-  
-  return userIdentifier
-}
-
-// Helper to validate scheme data
-const isValidScheme = (scheme: any): boolean => {
-  if (!scheme) {
-    console.error('❌ Scheme validation failed: scheme is null or undefined')
-    return false
-  }
-  
-  const validations = [
-    { check: typeof scheme.id === 'number', field: 'id', expected: 'number', actual: typeof scheme.id },
-    { check: typeof scheme.subject_id === 'number', field: 'subject_id', expected: 'number', actual: typeof scheme.subject_id },
-    { check: scheme.subject_id > 0, field: 'subject_id', expected: '> 0', actual: scheme.subject_id },
-    { check: typeof scheme.subject_name === 'string', field: 'subject_name', expected: 'string', actual: typeof scheme.subject_name },
-    { check: scheme.subject_name && scheme.subject_name.length > 0, field: 'subject_name', expected: 'non-empty string', actual: scheme.subject_name }
-  ]
-  
-  for (const validation of validations) {
-    if (!validation.check) {
-      console.error(`❌ Scheme validation failed for ${validation.field}: expected ${validation.expected}, got ${validation.actual}`)
-      return false
-    }
-  }
-  
-  return true
-}
-
-// Helper to clean up invalid scheme data
-const cleanupInvalidScheme = () => {
-  console.warn('🔧 Cleaning up invalid scheme data')
-  localStorage.removeItem('currentSchemeId')
-  localStorage.removeItem('schemeFormData')
+  if (!session?.user) return undefined
+  return session.user.id || session.user.sub || session.user.email
 }
 
 export default function TimetablePage() {
@@ -169,11 +122,8 @@ export default function TimetablePage() {
 
   // Helper functions for loading data
   const loadTopicsAndSubtopicsForSubject = async (subjectId: number) => {
-    console.log('🚀 Starting loadTopicsAndSubtopicsForSubject with subjectId:', subjectId)
     setIsTopicsLoading(true)
     setIsSubtopicsLoading(true)
-    setError(null) // Clear any previous errors
-    
     try {
       console.log('🔍 Loading topics for subject ID:', subjectId)
       if (!subjectId) {
@@ -183,81 +133,55 @@ export default function TimetablePage() {
         setIsSubtopicsLoading(false)
         return
       }
-      
-      console.log('📡 Making API call to:', `/api/v1/admin/topics/?subject_id=${subjectId}`)
-      
       // Load topics for this specific subject ONLY
-      const topicsResponse = await apiClient.get('/api/v1/admin/topics/', {
+      const topicsResponse = await apiClient.get('/api/v1/admin/topics', {
         subject_id: subjectId
       })
-      
-      console.log('📚 Raw topics response:', topicsResponse)
-      console.log('📚 Topics response success:', topicsResponse?.success)
-      console.log('📚 Topics response data:', topicsResponse?.data)
-      console.log('📚 Topics response length:', topicsResponse?.data?.length)
-      
+      console.log('📚 Topics response:', topicsResponse)
       if (topicsResponse.success && topicsResponse.data) {
-        console.log(`✅ Successfully loaded ${topicsResponse.data.length} topics`)
         setAvailableTopics(topicsResponse.data)
-        
         if (topicsResponse.data.length === 0) {
-          console.warn('⚠️ No topics found for this subject')
           setError(`No topics found for this subject. The subject may not have curriculum content yet.`)
         }
-        
         // Load subtopics for all topics of this subject
-        console.log('🔄 Starting to load subtopics for topics:', topicsResponse.data.map(t => t.id))
         const allSubtopics: any[] = []
-        
         for (const topic of topicsResponse.data) {
           try {
-            console.log(`📖 Loading subtopics for topic ${topic.id} (${topic.title})`)
-            
-            const subtopicsResponse = await apiClient.get('/api/v1/admin/subtopics/', {
+            const subtopicsResponse = await apiClient.get('/api/v1/admin/subtopics', {
               topic_id: topic.id
             })
-            
-            console.log(`📖 Subtopics response for topic ${topic.id}:`, subtopicsResponse)
-            
+            console.log(`📖 Subtopics for topic ${topic.id}:`, subtopicsResponse)
             if (subtopicsResponse.success && subtopicsResponse.data) {
-              console.log(`✅ Found ${subtopicsResponse.data.length} subtopics for topic ${topic.id}`)
               allSubtopics.push(...subtopicsResponse.data)
             } else {
-              console.warn(`⚠️ No subtopics found for topic ${topic.id}`)
+              console.warn(`No subtopics found for topic ${topic.id}`)
             }
           } catch (subErr) {
-            console.error(`❌ Error fetching subtopics for topic ${topic.id}:`, subErr)
+            console.error(`Error fetching subtopics for topic ${topic.id}:`, subErr)
           }
         }
-        
-        console.log(`🎯 Total subtopics collected:`, allSubtopics.length)
         setAvailableSubtopics(allSubtopics)
-        
         if (allSubtopics.length === 0) {
-          console.warn('⚠️ No subtopics found for any topic in this subject')
           setError('No subtopics found for any topic in this subject.')
         }
-        
-        console.log(`✅ Final results - Topics: ${topicsResponse.data.length}, Subtopics: ${allSubtopics.length}`)
-        
+        console.log(`✅ Total topics loaded: ${topicsResponse.data.length}`)
+        console.log(`✅ Total subtopics loaded: ${allSubtopics.length}`)
       } else {
-        console.error('❌ Failed to load topics - Invalid response:', topicsResponse)
+        console.error('❌ Failed to load topics:', topicsResponse)
         setError('Failed to load topics. Please check if curriculum content exists for this subject.')
       }
     } catch (error: any) {
       console.error('❌ Error loading topics and subtopics for subject:', error)
-      console.error('❌ Error details:', error.message, error.stack)
       setError(`Failed to load curriculum content: ${error?.message || 'Unknown error'}`)
     } finally {
       setIsTopicsLoading(false)
       setIsSubtopicsLoading(false)
-      console.log('🏁 Finished loadTopicsAndSubtopicsForSubject')
     }
   }
 
   const loadSchoolLevels = async () => {
     try {
-      const response = await apiClient.get('/api/v1/admin/school-levels/')
+      const response = await apiClient.get('/api/v1/admin/school-levels')
       if (response.success && response.data) {
         console.log('Loaded school levels:', response.data.length)
       }
@@ -268,7 +192,7 @@ export default function TimetablePage() {
 
   const loadFormsGrades = async () => {
     try {
-      const response = await apiClient.get('/api/v1/admin/forms-grades/')
+      const response = await apiClient.get('/api/v1/admin/forms-grades')
       if (response.success && response.data) {
         console.log('Loaded forms/grades:', response.data.length)
       }
@@ -279,7 +203,7 @@ export default function TimetablePage() {
 
   const loadTerms = async () => {
     try {
-      const response = await apiClient.get('/api/v1/admin/terms/')
+      const response = await apiClient.get('/api/v1/admin/terms')
       if (response.success && response.data) {
         console.log('Loaded terms:', response.data.length)
       }
@@ -290,7 +214,7 @@ export default function TimetablePage() {
 
   const loadSubjects = async () => {
     try {
-      const response = await apiClient.get('/api/v1/admin/subjects/')
+      const response = await apiClient.get('/api/v1/admin/subjects')
       if (response.success && response.data) {
         setAvailableSubjects(response.data)
         console.log('Loaded subjects:', response.data.length)
@@ -309,12 +233,6 @@ export default function TimetablePage() {
     console.log('🔑 User Google ID from session:', userGoogleId)
     console.log('📋 Current scheme:', currentScheme)
     console.log('👤 Session object:', session)
-    console.log('🔍 Session user details:', {
-      id: session?.user?.id,
-      sub: (session?.user as any)?.sub,
-      email: session?.user?.email,
-      name: session?.user?.name
-    })
     
     if (!userGoogleId || !currentScheme) {
       setSaveMessage('Please ensure you are signed in and have a valid scheme')
@@ -427,48 +345,15 @@ export default function TimetablePage() {
         throw new Error(response?.message || 'Failed to save timetable')
       }
     } catch (error: any) {
-      console.error('❌ Full error details:', error)
-      console.error('❌ Error type:', typeof error)
-      console.error('❌ Error message:', error.message)
-      console.error('❌ Error stack:', error.stack)
-      
-      let errorMessage = error.message || 'Unknown error occurred'
-      
-      // Provide more helpful error messages
-      if (errorMessage.includes('User not found')) {
-        errorMessage = `Authentication error: Your session may have expired or the scheme was created by a different user. Please sign out and sign in again.`
-      } else if (errorMessage.includes('Scheme not found')) {
-        errorMessage = `This scheme was not found or you don't have permission to access it. Please create a new scheme.`
-      }
-      
-      setSaveMessage(`Error saving timetable: ${errorMessage}`)
+      console.error('Error saving timetable:', error)
+      setSaveMessage(`Error saving timetable: ${error.message}`)
     } finally {
       setIsSavingTimetable(false)
     }
   }
 
-  // Load existing timetable data - DISABLED to ensure clean slate
+  // Load existing timetable data
   const loadExistingTimetable = async (schemeId: number) => {
-    console.log('🚫 Skipping existing timetable load to ensure clean slate for new timetable creation')
-    console.log('   If you want to load existing timetables, this function should be re-enabled')
-    
-    // Clear any existing timetable data from localStorage
-    localStorage.removeItem('currentTimetableId')
-    localStorage.removeItem('timetable-autosave')
-    
-    // Ensure clean state for topics, subtopics, and slots
-    setSelectedTopicIds([])
-    setSelectedSubtopicIds([])
-    updateSelectedTopics([])
-    updateSelectedSubtopics([])
-    
-    // Clear any pre-existing timetable slots
-    clearAll()
-    
-    return // Exit early to prevent loading existing data
-    
-    // The original loading logic is commented out below:
-    /*
     const userGoogleId = getUserIdFromSession(session)
     if (!userGoogleId) return
     try {
@@ -505,7 +390,6 @@ export default function TimetablePage() {
         console.log('No existing timetable found (this is normal for new schemes)')
       }
     }
-    */
   }
 
   // Save timetable data and navigate to scheme generation
@@ -599,18 +483,6 @@ export default function TimetablePage() {
       setIsLoadingScheme(true)
       setIsDataLoading(true)
       setError(null)
-      
-      // 🧹 Ensure completely clean state at the beginning
-      console.log('🧹 Initializing with clean slate - clearing all existing data')
-      setSelectedTopicIds([])
-      setSelectedSubtopicIds([])
-      setAvailableTopics([])
-      setAvailableSubtopics([])
-      updateSelectedTopics([])
-      updateSelectedSubtopics([])
-      clearAll()
-      localStorage.removeItem('timetable-autosave')
-      localStorage.removeItem('currentTimetableId')
 
       try {
         const savedSchemeId = localStorage.getItem('currentSchemeId')
@@ -682,16 +554,25 @@ export default function TimetablePage() {
             all_keys: Object.keys(scheme)
           })
           
-          // Validate scheme using helper function
-          if (!isValidScheme(scheme)) {
-            console.error('❌ Scheme validation failed:', {
-              scheme_id: scheme?.id,
-              subject_id: scheme?.subject_id,
-              subject_name: scheme?.subject_name,
-              is_valid: isValidScheme(scheme)
+          // Check for subject_id with multiple validation conditions
+          if (!scheme.subject_id || scheme.subject_id === 0 || scheme.subject_id === null || scheme.subject_id === undefined || scheme.subject_id === '') {
+            console.error('❌ Scheme subject_id validation failed:', {
+              scheme_id: scheme.id,
+              subject_id: scheme.subject_id,
+              type: typeof scheme.subject_id,
+              is_null: scheme.subject_id === null,
+              is_undefined: scheme.subject_id === undefined,
+              is_zero: scheme.subject_id === 0,
+              is_empty_string: scheme.subject_id === '',
+              subject_name: scheme.subject_name,
+              school_name: scheme.school_name
             })
-            cleanupInvalidScheme()
-            throw new Error('This scheme is incomplete or missing required information. Please create a new scheme.')
+            
+            // Clear invalid scheme from localStorage immediately
+            localStorage.removeItem('currentSchemeId')
+            localStorage.removeItem('schemeFormData')
+            
+            throw new Error('This scheme is incomplete (missing subject information). The scheme has been cleared. Please create a new scheme with proper subject selection.')
           }
           
           console.log('🎯 Loaded scheme data:', {
@@ -717,12 +598,15 @@ export default function TimetablePage() {
             errorMessage = apiError
           }
           
-          // If the error is about missing or invalid scheme data
-          if (errorMessage.includes('subject') || errorMessage.includes('incomplete') || errorMessage.includes('missing')) {
-            cleanupInvalidScheme()
+          // If the error is about missing subject_id, clear the localStorage
+          // and suggest creating a new scheme
+          if (errorMessage.includes('subject') || errorMessage.includes('incomplete') || errorMessage.includes('missing subject information')) {
+            console.warn('🔧 Clearing invalid scheme from localStorage')
+            localStorage.removeItem('currentSchemeId')
+            localStorage.removeItem('schemeFormData')
             
             // Modify error message to be more helpful
-            errorMessage = 'The selected scheme is incomplete or corrupted. Please create a new scheme.'
+            errorMessage = 'The scheme is missing required subject information. Creating a new scheme is recommended.'
             
             // Clear the scheme ID so we don't show the edit button
             setCurrentScheme(null)
@@ -730,7 +614,7 @@ export default function TimetablePage() {
             // Auto-redirect after a delay
             setTimeout(() => {
               router.push('/dashboard/scheme-of-work')
-            }, 4000)
+            }, 5000)
           }
           
           throw new Error(errorMessage)
@@ -742,8 +626,8 @@ export default function TimetablePage() {
         
         try {
           const [formsGradesRes, termsRes] = await Promise.all([
-            apiClient.get('/api/v1/admin/forms-grades/'),
-            apiClient.get('/api/v1/admin/terms/')
+            apiClient.get('/api/v1/admin/forms-grades'),
+            apiClient.get('/api/v1/admin/terms')
           ])
           
           // Find and set form/grade name
@@ -787,11 +671,8 @@ export default function TimetablePage() {
         setCurrentSubject(subject)
         setCurrentSubjectState(subject)
         
-        console.log('📚 About to load topics and subtopics for subject:', scheme.subject_id)
-        console.log('📚 Current scheme object:', scheme)
-        console.log('📚 Scheme validation passed, calling loadTopicsAndSubtopicsForSubject')
+        console.log('📚 Loading topics and subtopics for subject:', scheme.subject_id)
         await loadTopicsAndSubtopicsForSubject(scheme.subject_id)
-        console.log('📚 Finished calling loadTopicsAndSubtopicsForSubject')
 
         // Load other general data
         await Promise.all([
@@ -906,7 +787,7 @@ export default function TimetablePage() {
     try {
       const allSubtopics: any[] = []
       for (const topicId of topicIds) {
-        const subtopicsResponse = await apiClient.get('/api/v1/admin/subtopics/', {
+        const subtopicsResponse = await apiClient.get('/api/v1/admin/subtopics', {
           topic_id: topicId
         })
         if (subtopicsResponse.success && subtopicsResponse.data) {
@@ -1023,7 +904,7 @@ export default function TimetablePage() {
                   <div className="space-y-2 col-span-2">
                     <label className="text-sm font-medium text-gray-700">Class & Term</label>
                     <p className="text-sm text-gray-900">
-                      {formName ? formName : `Form ${currentScheme.form_grade_id}`}<span className="mx-2">|</span>{termName ? termName : `Term ${currentScheme.term_id}`}
+                      {formName || (currentScheme.form_grade_id ? `Form ${currentScheme.form_grade_id}` : 'N/A')}<span className="mx-2">|</span>{termName || (currentScheme.term_id ? `Term ${currentScheme.term_id}` : 'N/A')}
                     </p>
                   </div>
                 </div>
@@ -1053,11 +934,11 @@ export default function TimetablePage() {
                 <div className="flex items-center space-x-4 text-sm text-blue-700">
                   <div className="flex items-center space-x-1">
                     <Building2 className="h-4 w-4" />
-                    <span>Form {formName || currentScheme.form_grade_id}</span>
+                    <span>Form {formName || (currentScheme.form_grade_id ? `Form ${currentScheme.form_grade_id}` : 'N/A')}</span>
                   </div>
                   <div className="flex items-center space-x-1">
                     <Calendar className="h-4 w-4" />
-                    <span>Term {termName || currentScheme.term_id}</span>
+                    <span>Term {termName || (currentScheme.term_id ? `Term ${currentScheme.term_id}` : 'N/A')}</span>
                   </div>
                 </div>
               </div>
@@ -1111,24 +992,6 @@ export default function TimetablePage() {
                 Ready
               </Badge>
             )}
-            
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => {
-                // Clear all selections and reset to clean state
-                setSelectedTopicIds([])
-                setSelectedSubtopicIds([])
-                updateSelectedTopics([])
-                updateSelectedSubtopics([])
-                clearAll()
-                console.log('🧹 Manual reset: All selections cleared')
-              }}
-              className="text-orange-600 border-orange-200 hover:bg-orange-50 mr-2"
-            >
-              <RotateCcw className="h-4 w-4 mr-2" />
-              Reset All
-            </Button>
             
             <Button 
               variant="outline" 
@@ -1309,36 +1172,12 @@ export default function TimetablePage() {
                   </div>
                 </div>
                 {saveMessage && (
-                  <div className={`p-3 rounded text-sm ${
+                  <div className={`p-2 rounded text-sm ${
                     saveMessage.includes('Error') || saveMessage.includes('Please') 
-                      ? 'bg-red-100 text-red-700 border border-red-200' 
-                      : 'bg-green-100 text-green-700 border border-green-200'
+                      ? 'bg-red-100 text-red-700' 
+                      : 'bg-green-100 text-green-700'
                   }`}>
                     {saveMessage}
-                    {saveMessage.includes('Authentication error') && (
-                      <div className="mt-3 flex gap-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={() => {
-                            // Clear all data and redirect to sign in
-                            localStorage.clear()
-                            window.location.href = '/login'
-                          }}
-                          className="text-red-600 border-red-300 hover:bg-red-50"
-                        >
-                          Sign Out & Sign In Again
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={() => router.push('/dashboard/scheme-of-work')}
-                          className="text-blue-600 border-blue-300 hover:bg-blue-50"
-                        >
-                          Create New Scheme
-                        </Button>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>

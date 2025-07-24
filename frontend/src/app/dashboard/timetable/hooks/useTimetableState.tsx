@@ -21,29 +21,52 @@ const sessionHelpers = {
   getUserIdFromSession: (session: any) => session?.user?.id?.toString() || '1',
 }
 const timetableSchemeApi = {
-  createTimetableFromScheme: async (data: any, userGoogleId: string) => ({ success: true, data: { id: 'mock-id' } }),
+  createTimetableFromScheme: async (data: any, userGoogleId: string) => {
+    console.log('🔄 Calling real API to save timetable:', { data, userGoogleId })
+    try {
+      const result = await saveToDatabase(data, userGoogleId)
+      console.log('✅ Timetable API success:', result)
+      return result
+    } catch (error) {
+      console.error('❌ Timetable API error:', error)
+      throw error
+    }
+  },
 }
 
 // Enhanced save function that properly handles user identification
 async function saveToDatabase(data: any, userGoogleId: string) {
   try {
-    const userId = sessionHelpers.getUserIdFromSession({ user: { id: userGoogleId } })
+    const url = data.timetable_id 
+      ? `http://localhost:8000/api/timetables/${data.timetable_id}?user_google_id=${encodeURIComponent(userGoogleId)}`
+      : `http://localhost:8000/api/timetables?user_google_id=${encodeURIComponent(userGoogleId)}`
+    
     const payload = {
       ...data,
-      user_id: parseInt(userId) || 1,
-      user_google_id: userGoogleId
+      // Remove timetable_id from payload since it's in the URL
+      timetable_id: undefined
     }
-    const response = await fetch('http://localhost:8000/api/timetables', {
+    
+    const response = await fetch(url, {
       method: data.timetable_id ? 'PUT' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify(payload)
     })
+    
     if (!response.ok) {
       const errorText = await response.text()
+      console.error('❌ API Error Response:', errorText)
       throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`)
     }
-    return await response.json()
+    
+    const result = await response.json()
+    console.log('✅ Save API response:', result)
+    return result
   } catch (error) {
+    console.error('❌ Save to database error:', error)
     throw error
   }
 }
@@ -257,6 +280,13 @@ export function useTimetableState() {
   }, [state, selectedTopics, selectedSubtopics, selectedScheme, getUserGoogleId])
 
   const loadFromStorage = useCallback(async () => {
+    console.log('🚫 loadFromStorage disabled to ensure clean slate for new timetable creation')
+    // Clear any existing data to ensure fresh start
+    localStorage.removeItem(storageKey)
+    return false
+    
+    // Original implementation commented out:
+    /*
     try {
       const stored = localStorage.getItem(storageKey)
       if (stored) {
@@ -274,6 +304,7 @@ export function useTimetableState() {
       }
     } catch {}
     return false
+    */
   }, [])
 
   const loadTimetable = useCallback(async (timetableId: string) => {

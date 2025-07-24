@@ -111,7 +111,7 @@ const ContentSelectionPanel = ({
   // Filter topics based on search and filters
   const filteredTopics = availableTopics.filter(topic => {
     const matchesSearch = topic.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         topic.description.toLowerCase().includes(searchTerm.toLowerCase())
+                         (topic.description || '').toLowerCase().includes(searchTerm.toLowerCase())
     const matchesFilter = filterBy === 'all' || 
                          (filterBy === 'active' && topic.is_active) ||
                          (filterBy === 'inactive' && !topic.is_active)
@@ -119,6 +119,16 @@ const ContentSelectionPanel = ({
     
     return matchesSearch && matchesFilter && matchesSelected
   })
+  
+  // Debug: Log component state
+  if (availableTopics.length > 0 && filteredTopics.length === 0) {
+    console.log('⚠️ Warning: Topics available but filtered list is empty', {
+      availableTopics: availableTopics.length,
+      searchTerm,
+      filterBy,
+      showOnlySelected
+    })
+  }
 
   // Get subtopics for filtered topics
   const getSubtopicsForTopic = (topicId: number) => {
@@ -129,7 +139,7 @@ const ContentSelectionPanel = ({
 
   const filteredSubtopics = availableSubtopics.filter(subtopic => {
     const matchesSearch = subtopic.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         subtopic.content.toLowerCase().includes(searchTerm.toLowerCase())
+                         (subtopic.content || '').toLowerCase().includes(searchTerm.toLowerCase())
     const matchesFilter = filterBy === 'all' || 
                          (filterBy === 'active' && subtopic.is_active) ||
                          (filterBy === 'inactive' && !subtopic.is_active)

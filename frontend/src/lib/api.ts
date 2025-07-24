@@ -127,24 +127,24 @@ export const schoolLevelApi = {
 
 export const formGradeApi = {
   getAll: (params?: any): Promise<any> =>
-    apiClient.get('/api/v1/admin/forms-grades', params),
+    apiClient.get('/api/v1/admin/forms-grades/', params),
 
   getById: (id: number): Promise<any> =>
     apiClient.get(`/api/v1/admin/forms-grades/${id}`),
 
   getBySchoolLevel: (schoolLevelId: number): Promise<any> =>
-    apiClient.get('/api/v1/admin/forms-grades', { school_level_id: schoolLevelId }),
+    apiClient.get('/api/v1/admin/forms-grades/', { school_level_id: schoolLevelId }),
 };
 
 export const termApi = {
   getAll: (params?: any): Promise<any> =>
-    apiClient.get('/api/v1/admin/terms', params),
+    apiClient.get('/api/v1/admin/terms/', params),
 
   getById: (id: number): Promise<any> =>
     apiClient.get(`/api/v1/admin/terms/${id}`),
 
   getByFormGrade: (formGradeId: number): Promise<any> =>
-    apiClient.get('/api/v1/admin/terms', { form_grade_id: formGradeId }),
+    apiClient.get('/api/v1/admin/terms/', { form_grade_id: formGradeId }),
 };
 
 export const schemeApi = {
@@ -200,7 +200,7 @@ export const userApi = {
 export const subjectApi = {
   async getAll(params?: { term_id?: number; include_inactive?: boolean }): Promise<any> {
     // Real backend call
-    return apiClient.get('/api/v1/admin/subjects', params)
+    return apiClient.get('/api/v1/admin/subjects/', params)
   },
 
   async getById(id: number): Promise<any> {
@@ -208,13 +208,13 @@ export const subjectApi = {
   },
 
   async getByTerm(termId: number, includeInactive: boolean = false): Promise<any> {
-    return apiClient.get('/api/v1/admin/subjects', { term_id: termId, include_inactive: includeInactive })
+    return apiClient.get('/api/v1/admin/subjects/', { term_id: termId, include_inactive: includeInactive })
   }
 }
 
 export const topicApi = {
   async getAll(params?: { subject_id?: number; search?: string; skip?: number; limit?: number }): Promise<any> {
-    return apiClient.get('/api/v1/admin/topics', params)
+    return apiClient.get('/api/v1/admin/topics/', params)
   },
 
   async getById(id: number): Promise<any> {
@@ -222,13 +222,13 @@ export const topicApi = {
   },
 
   async getBySubject(subjectId: number): Promise<any> {
-    return apiClient.get('/api/v1/admin/topics', { subject_id: subjectId })
+    return apiClient.get('/api/v1/admin/topics/', { subject_id: subjectId })
   }
 }
 
 export const subtopicApi = {
   async getAll(params?: { topic_id?: number; search?: string; skip?: number; limit?: number }): Promise<any> {
-    return apiClient.get('/api/v1/admin/subtopics', params)
+    return apiClient.get('/api/v1/admin/subtopics/', params)
   },
 
   async getById(id: number): Promise<any> {
@@ -236,7 +236,7 @@ export const subtopicApi = {
   },
 
   async getByTopic(topicId: number): Promise<any> {
-    return apiClient.get('/api/v1/admin/subtopics', { topic_id: topicId })
+    return apiClient.get('/api/v1/admin/subtopics/', { topic_id: topicId })
   }
 }
 

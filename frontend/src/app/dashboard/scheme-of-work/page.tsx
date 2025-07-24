@@ -49,6 +49,11 @@ interface Term {
   end_date: string
 }
 
+interface SubjectOption {
+  id: string | number
+  name: string
+}
+
 const steps = [
   { id: 1, name: 'School Details', description: 'Fill the form with the correct details', completed: false },
   { id: 2, name: 'Review & Submit', description: 'Review and finalize your scheme', completed: false }
@@ -65,7 +70,7 @@ export default function SchemeOfWorkPage() {
   const [errors, setErrors] = useState<{ [key: string]: string }>({})
 
   // Subject cascading selection
-  const [subjects, setSubjects] = useState<any[]>([])
+  const [subjects, setSubjects] = useState<SubjectOption[]>([])
   const [selectedSubject, setSelectedSubject] = useState<string>('')
 
   const [formData, setFormData] = useState({
@@ -174,15 +179,20 @@ export default function SchemeOfWorkPage() {
     if (!formData.term) {
       newErrors.term = 'Please select a term'
     }
-    if (!selectedSubject) {
-      newErrors.subject = 'Please select a subject'
+    if (!selectedSubject || isNaN(Number(selectedSubject)) || Number(selectedSubject) <= 0) {
+      newErrors.subject = 'Please select a valid subject'
     }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
 
   const handleSaveAndContinue = async () => {
-    if (!session?.user?.id) {
+    if (!session || !session.user) {
+      setErrors({ general: 'Please sign in to continue' });
+      return;
+    }
+    const userIdOrEmail = ('id' in session.user && session.user.id) ? session.user.id : session.user.email;
+    if (!userIdOrEmail) {
       setErrors({ general: 'Please sign in to continue' });
       return;
     }
@@ -191,15 +201,28 @@ export default function SchemeOfWorkPage() {
       return;
     }
 
+    // Extra validation for subject_id
+    const subjectId = Number(selectedSubject);
+    if (!selectedSubject || isNaN(subjectId) || subjectId <= 0) {
+      setErrors({ subject: 'Please select a valid subject before continuing' });
+      return;
+    }
+
+    const selectedSubjectData = subjects.find(s => s.id.toString() === selectedSubject);
+    if (!selectedSubjectData) {
+      setErrors({ subject: 'Selected subject not found. Please select a valid subject.' });
+      return;
+    }
+
     setIsLoading(true);
     setErrors({ general: '' });
 
     try {
-      const userGoogleId = session.user.id;
+      const userGoogleId = userIdOrEmail;
       const schemeData = {
-        school_name: formData.schoolName,
-        subject_name: subjects.find(s => s.id.toString() === selectedSubject)?.name || '',
-        subject_id: selectedSubject ? parseInt(selectedSubject) : undefined,
+        school_name: formData.schoolName.trim(),
+        subject_name: selectedSubjectData.name,
+        subject_id: subjectId, // Always a valid positive number
         school_level_id: parseInt(formData.schoolLevel),
         form_grade_id: parseInt(formData.form),
         term_id: parseInt(formData.term),
@@ -208,11 +231,13 @@ export default function SchemeOfWorkPage() {
         content: {
           form_data: formData,
           selected_subject: selectedSubject,
+          selected_subject_data: selectedSubjectData,
           step_completed: 'school_details'
         },
         scheme_metadata: {
           created_from: 'scheme_of_work_wizard',
-          step: 1
+          step: 1,
+          validation_passed: true
         }
       };
 
@@ -444,21 +469,24 @@ export default function SchemeOfWorkPage() {
                   Subject <span className="text-red-500">*</span>
                 </Label>
                 <Select
-                  value={selectedSubject}
-                  onValueChange={(value) => setSelectedSubject(value)}
+                  value={typeof selectedSubject === 'string' ? selectedSubject : ''}
+                  onValueChange={(value) => setSelectedSubject(typeof value === 'string' ? value : '')}
                   disabled={subjects.length === 0}
                 >
                   <SelectTrigger className={errors.subject ? 'border-red-300' : ''}>
-                    <SelectValue placeholder="Select subject" />
+                    <SelectValue placeholder={"Select subject"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {subjects.map((subject) => (
-                      <SelectItem key={subject.id} value={subject.id.toString()}>
-                        <div className="flex items-center space-x-2">
-                          <span>{subject.name}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
+                    {subjects.filter(subject => subject.id && subject.name).map((subject) => {
+                      const value = String(subject.id);
+                      return (
+                        <SelectItem key={value} value={value}>
+                          <div className="flex items-center space-x-2">
+                            <span>{subject.name}</span>
+                          </div>
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
                 {errors.subject && <p className="text-sm text-red-600">{errors.subject}</p>}

@@ -1,0 +1,80 @@
+# Testing Workflow Guide
+
+## Complete Testing Steps
+
+### 1. Test Scheme Creation
+1. Navigate to `/dashboard/scheme-of-work`
+2. Fill in all required fields:
+   - School Name (required)
+   - School Level (dropdown)
+   - Form/Grade (cascaded from school level)
+   - Term (cascaded from form/grade)
+   - Subject (cascaded from term) **CRITICAL**
+3. Verify subject selection is required and validates
+4. Click "Save & Continue to Timetable"
+5. Verify scheme is created with valid subject_id
+6. Check localStorage for `currentSchemeId`
+
+### 2. Test Timetable Loading
+1. Should auto-redirect to `/dashboard/timetable`
+2. Verify scheme loads correctly with subject info
+3. Check console for validation logs
+4. Verify subject topics/subtopics load
+5. Test topic/subtopic selection
+6. Test lesson slot creation
+
+### 3. Test Error Handling
+1. Manually clear subject_id from database
+2. Refresh timetable page
+3. Verify error handling and redirect
+4. Test with invalid scheme ID in localStorage
+5. Test network error scenarios
+
+### 4. Test Complete Workflow
+1. Create new scheme with all fields
+2. Navigate to timetable
+3. Select topics and subtopics
+4. Create lesson slots
+5. Save timetable
+6. Navigate to scheme generation
+7. Generate AI scheme of work
+
+## Expected Behavior
+
+### Success Cases
+- Scheme creation with valid subject_id
+- Smooth transition to timetable page
+- Proper loading of curriculum data
+- Successful timetable creation
+- AI scheme generation
+
+### Error Cases
+- Missing subject → Validation error
+- Invalid scheme → Clean localStorage, redirect
+- Network errors → Retry options
+- Missing data → Fallback behavior
+
+## Debug Commands
+```bash
+# Check database
+cd backend && python debug_scheme.py
+
+# Fix invalid schemes
+cd backend && python fix_subject_id_migration.py
+
+# Check API health
+curl http://localhost:8000/health
+```
+
+## Validation Checklist
+- [ ] Subject selection is required
+- [ ] Scheme has valid subject_id in database
+- [ ] Timetable loads without errors
+- [ ] Topics/subtopics display correctly
+- [ ] Error handling works properly
+- [ ] localStorage is managed correctly
+- [ ] Complete workflow functions end-to-end
+description:
+globs:
+alwaysApply: false
+---

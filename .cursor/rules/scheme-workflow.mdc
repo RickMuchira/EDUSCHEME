@@ -1,0 +1,54 @@
+# Scheme Workflow Patterns
+
+## Validation Rules
+- ALWAYS validate `subject_id` exists and is > 0 before creating schemes
+- NEVER allow undefined, null, or 0 values for subject_id
+- Use strict TypeScript typing for all form data
+
+## Error Handling Patterns
+```typescript
+// Always check scheme validity before proceeding
+if (!scheme.subject_id || scheme.subject_id <= 0) {
+  localStorage.removeItem('currentSchemeId');
+  setError('Invalid scheme detected. Please create a new scheme.');
+  router.push('/dashboard/scheme-of-work');
+  return;
+}
+```
+
+## Data Flow Validation
+1. **Scheme Creation**: Validate all required fields including subject_id
+2. **Scheme Loading**: Always verify subject_id exists before using scheme
+3. **Error Recovery**: Clear invalid data and redirect to creation page
+
+## localStorage Management
+- Store: `currentSchemeId` (string)
+- Store: `schemeFormData` (JSON with validation metadata)
+- Clear invalid schemes immediately when detected
+
+## API Error Handling
+- 422 status → Missing required fields (redirect to create)
+- 404 status → Resource not found (clear localStorage)
+- 500 status → Server error (show retry option)
+
+## TypeScript Patterns
+```typescript
+interface ValidatedScheme {
+  id: number;
+  subject_id: number; // REQUIRED, never optional
+  subject_name: string;
+  school_name: string;
+}
+
+// Always use type guards
+const isValidScheme = (scheme: any): scheme is ValidatedScheme => {
+  return scheme && 
+         typeof scheme.id === 'number' && 
+         typeof scheme.subject_id === 'number' && 
+         scheme.subject_id > 0;
+};
+```
+description:
+globs:
+alwaysApply: false
+---

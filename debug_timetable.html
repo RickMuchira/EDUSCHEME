@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timetable Debug - EDUSCHEME</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .debug-section { margin: 20px 0; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .result { background: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #007bff; }
+        .error { background: #ffe6e6; border-left-color: #dc3545; }
+        .success { background: #d4edda; border-left-color: #28a745; }
+        .warning { background: #fff3cd; border-left-color: #ffc107; }
+        button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        .topics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin: 15px 0; }
+        .topic-card { background: #e3f2fd; padding: 15px; border-radius: 8px; border: 1px solid #bbdefb; }
+        .subtopic-card { background: #f3e5f5; padding: 10px; margin: 5px 0; border-radius: 5px; border: 1px solid #e1bee7; }
+        .scheme-info { background: #e8f5e8; padding: 15px; border-radius: 8px; margin: 15px 0; }
+        .log { background: #2d3748; color: #e2e8f0; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 12px; height: 200px; overflow-y: auto; }
+        pre { white-space: pre-wrap; word-wrap: break-word; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Timetable Debug Tool</h1>
+        <p>This tool helps debug the timetable topics/subtopics loading issue.</p>
+
+        <!-- Live Console Log -->
+        <div class="debug-section">
+            <h2>📊 Live Console Log</h2>
+            <div id="console-log" class="log"></div>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+
+        <!-- Backend Health Check -->
+        <div class="debug-section">
+            <h2>1. Backend Health Check</h2>
+            <button onclick="testBackendHealth()">Check Backend Health</button>
+            <div id="health-result" class="result"></div>
+        </div>
+
+        <!-- Scheme Information -->
+        <div class="debug-section">
+            <h2>2. Current Scheme Information</h2>
+            <div class="scheme-info">
+                <p><strong>Scheme ID from localStorage:</strong> <span id="scheme-id">-</span></p>
+                <p><strong>Scheme Data:</strong> <span id="scheme-data">-</span></p>
+            </div>
+            <button onclick="checkSchemeData()">Load Scheme Info</button>
+            <button onclick="testSchemeAPI()">Test Scheme API</button>
+            <div id="scheme-result" class="result"></div>
+        </div>
+
+        <!-- Topics Test -->
+        <div class="debug-section">
+            <h2>3. Topics Loading Test</h2>
+            <label>Subject ID: <input type="number" id="subject-id" value="59" placeholder="Enter subject ID"></label>
+            <button onclick="testTopicsAPI()">Load Topics</button>
+            <div id="topics-result" class="result"></div>
+            <div id="topics-display" class="topics-grid"></div>
+        </div>
+
+        <!-- Subtopics Test -->
+        <div class="debug-section">
+            <h2>4. Subtopics Loading Test</h2>
+            <label>Topic ID: <input type="number" id="topic-id" value="148" placeholder="Enter topic ID"></label>
+            <button onclick="testSubtopicsAPI()">Load Subtopics</button>
+            <div id="subtopics-result" class="result"></div>
+            <div id="subtopics-display"></div>
+        </div>
+
+        <!-- Full Workflow Test -->
+        <div class="debug-section">
+            <h2>5. Full Workflow Test</h2>
+            <button onclick="runFullWorkflowTest()">Run Complete Test</button>
+            <div id="workflow-result" class="result"></div>
+        </div>
+
+        <!-- Database Schema Info -->
+        <div class="debug-section">
+            <h2>6. Database Information</h2>
+            <button onclick="showDatabaseInfo()">Show Database Schema</button>
+            <div id="database-result" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let logCount = 0;
+
+        // Console logging function
+        function log(message, type = 'info') {
+            logCount++;
+            const timestamp = new Date().toLocaleTimeString();
+            const logElement = document.getElementById('console-log');
+            const logEntry = `[${timestamp}] ${type.toUpperCase()}: ${message}\n`;
+            logElement.textContent += logEntry;
+            logElement.scrollTop = logElement.scrollHeight;
+            
+            // Also log to browser console
+            console.log(`[Debug Tool] ${message}`);
+        }
+
+        function clearLog() {
+            document.getElementById('console-log').textContent = '';
+            logCount = 0;
+        }
+
+        // Helper function to make API requests
+        async function makeRequest(endpoint, method = 'GET', body = null) {
+            const url = `${API_BASE}${endpoint}`;
+            log(`Making ${method} request to: ${url}`);
+            
+            try {
+                const options = {
+                    method,
+                    headers: { 'Content-Type': 'application/json' }
+                };
+                
+                if (body) {
+                    options.body = JSON.stringify(body);
+                }
+                
+                const response = await fetch(url, options);
+                const data = await response.json();
+                
+                log(`Response status: ${response.status}`);
+                log(`Response data: ${JSON.stringify(data, null, 2)}`);
+                
+                return { response, data };
+            } catch (error) {
+                log(`Request error: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
+        // Test functions
+        async function testBackendHealth() {
+            const resultElement = document.getElementById('health-result');
+            resultElement.innerHTML = 'Testing...';
+            
+            try {
+                const { response, data } = await makeRequest('/health');
+                
+                if (response.ok) {
+                    resultElement.className = 'result success';
+                    resultElement.innerHTML = `
+                        <h4>✅ Backend is healthy</h4>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                resultElement.className = 'result error';
+                resultElement.innerHTML = `
+                    <h4>❌ Backend connection failed</h4>
+                    <p>Error: ${error.message}</p>
+                    <p>Make sure the backend server is running on port 8000</p>
+                `;
+            }
+        }
+
+        function checkSchemeData() {
+            const schemeId = localStorage.getItem('currentSchemeId');
+            const schemeData = localStorage.getItem('schemeFormData');
+            
+            document.getElementById('scheme-id').textContent = schemeId || 'Not found';
+            document.getElementById('scheme-data').textContent = schemeData || 'Not found';
+            
+            log(`Scheme ID in localStorage: ${schemeId}`);
+            log(`Scheme data in localStorage: ${schemeData}`);
+        }
+
+        async function testSchemeAPI() {
+            const resultElement = document.getElementById('scheme-result');
+            const schemeId = localStorage.getItem('currentSchemeId');
+            
+            if (!schemeId) {
+                resultElement.className = 'result error';
+                resultElement.innerHTML = `
+                    <h4>❌ No scheme ID found</h4>
+                    <p>Please create a scheme first or check localStorage</p>
+                `;
+                return;
+            }
+            
+            resultElement.innerHTML = 'Loading scheme...';
+            
+            try {
+                const { response, data } = await makeRequest(`/api/schemes/${schemeId}?user_google_id=test123`);
+                
+                if (response.ok) {
+                    resultElement.className = 'result success';
+                    resultElement.innerHTML = `
+                        <h4>✅ Scheme loaded successfully</h4>
+                        <p><strong>Subject ID:</strong> ${data.data?.subject_id}</p>
+                        <p><strong>Subject Name:</strong> ${data.data?.subject_name}</p>
+                        <pre>${JSON.stringify(data.data, null, 2)}</pre>
+                    `;
+                } else {
+                    throw new Error(`HTTP ${response.status}: ${data.message || 'Unknown error'}`);
+                }
+            } catch (error) {
+                resultElement.className = 'result error';
+                resultElement.innerHTML = `
+                    <h4>❌ Failed to load scheme</h4>
+                    <p>Error: ${error.message}</p>
+                `;
+            }
+        }
+
+        async function testTopicsAPI() {
+            const resultElement = document.getElementById('topics-result');
+            const displayElement = document.getElementById('topics-display');
+            const subjectId = document.getElementById('subject-id').value;
+            
+            if (!subjectId) {
+                resultElement.className = 'result error';
+                resultElement.innerHTML = '<h4>❌ Please enter a subject ID</h4>';
+                return;
+            }
+            
+            resultElement.innerHTML = 'Loading topics...';
+            displayElement.innerHTML = '';
+            
+            try {
+                const { response, data } = await makeRequest(`/api/v1/admin/topics/?subject_id=${subjectId}`);
+                
+                if (response.ok && data.success) {
+                    resultElement.className = 'result success';
+                    resultElement.innerHTML = `
+                        <h4>✅ Topics loaded successfully</h4>
+                        <p><strong>Count:</strong> ${data.data.length}</p>
+                    `;
+                    
+                    // Display topics
+                    if (data.data.length > 0) {
+                        displayElement.innerHTML = data.data.map(topic => `
+                            <div class="topic-card">
+                                <h4>${topic.title} (ID: ${topic.id})</h4>
+                                <p><strong>Subject ID:</strong> ${topic.subject_id}</p>
+                                <p><strong>Duration:</strong> ${topic.duration_weeks} weeks</p>
+                                <p><strong>Active:</strong> ${topic.is_active ? 'Yes' : 'No'}</p>
+                                <button onclick="testSubtopicsForTopic(${topic.id})">Load Subtopics</button>
+                            </div>
+                        `).join('');
+                    }
+                } else {
+                    throw new Error(data.message || 'Failed to load topics');
+                }
+            } catch (error) {
+                resultElement.className = 'result error';
+                resultElement.innerHTML = `
+                    <h4>❌ Failed to load topics</h4>
+                    <p>Error: ${error.message}</p>
+                `;
+            }
+        }
+
+        async function testSubtopicsAPI() {
+            const topicId = document.getElementById('topic-id').value;
+            await testSubtopicsForTopic(topicId);
+        }
+
+        async function testSubtopicsForTopic(topicId) {
+            const resultElement = document.getElementById('subtopics-result');
+            const displayElement = document.getElementById('subtopics-display');
+            
+            if (!topicId) {
+                resultElement.className = 'result error';
+                resultElement.innerHTML = '<h4>❌ Please enter a topic ID</h4>';
+                return;
+            }
+            
+            resultElement.innerHTML = 'Loading subtopics...';
+            
+            try {
+                const { response, data } = await makeRequest(`/api/v1/admin/subtopics/?topic_id=${topicId}`);
+                
+                if (response.ok && data.success) {
+                    resultElement.className = 'result success';
+                    resultElement.innerHTML = `
+                        <h4>✅ Subtopics loaded successfully</h4>
+                        <p><strong>Topic ID:</strong> ${topicId}</p>
+                        <p><strong>Count:</strong> ${data.data.length}</p>
+                    `;
+                    
+                    // Display subtopics
+                    if (data.data.length > 0) {
+                        displayElement.innerHTML = data.data.map(subtopic => `
+                            <div class="subtopic-card">
+                                <h5>${subtopic.title} (ID: ${subtopic.id})</h5>
+                                <p><strong>Topic ID:</strong> ${subtopic.topic_id}</p>
+                                <p><strong>Duration:</strong> ${subtopic.duration_lessons} lessons</p>
+                                <p><strong>Active:</strong> ${subtopic.is_active ? 'Yes' : 'No'}</p>
+                            </div>
+                        `).join('');
+                    } else {
+                        displayElement.innerHTML = '<p>No subtopics found for this topic.</p>';
+                    }
+                } else {
+                    throw new Error(data.message || 'Failed to load subtopics');
+                }
+            } catch (error) {
+                resultElement.className = 'result error';
+                resultElement.innerHTML = `
+                    <h4>❌ Failed to load subtopics</h4>
+                    <p>Error: ${error.message}</p>
+                `;
+            }
+        }
+
+        async function runFullWorkflowTest() {
+            const resultElement = document.getElementById('workflow-result');
+            resultElement.innerHTML = '<h4>🔄 Running full workflow test...</h4>';
+            
+            log('Starting full workflow test');
+            
+            try {
+                // Step 1: Check backend health
+                log('Step 1: Checking backend health');
+                await makeRequest('/health');
+                
+                // Step 2: Get scheme from localStorage
+                const schemeId = localStorage.getItem('currentSchemeId');
+                if (!schemeId) {
+                    throw new Error('No scheme ID found in localStorage');
+                }
+                
+                // Step 3: Load scheme data
+                log(`Step 2: Loading scheme ${schemeId}`);
+                const { data: schemeData } = await makeRequest(`/api/schemes/${schemeId}?user_google_id=test123`);
+                
+                if (!schemeData.success) {
+                    throw new Error(`Failed to load scheme: ${schemeData.message}`);
+                }
+                
+                const scheme = schemeData.data;
+                const subjectId = scheme.subject_id;
+                
+                if (!subjectId) {
+                    throw new Error('Scheme is missing subject_id');
+                }
+                
+                // Step 4: Load topics
+                log(`Step 3: Loading topics for subject ${subjectId}`);
+                const { data: topicsData } = await makeRequest(`/api/v1/admin/topics/?subject_id=${subjectId}`);
+                
+                if (!topicsData.success) {
+                    throw new Error(`Failed to load topics: ${topicsData.message}`);
+                }
+                
+                const topics = topicsData.data;
+                
+                // Step 5: Load subtopics for each topic
+                log(`Step 4: Loading subtopics for ${topics.length} topics`);
+                let totalSubtopics = 0;
+                
+                for (const topic of topics) {
+                    const { data: subtopicsData } = await makeRequest(`/api/v1/admin/subtopics/?topic_id=${topic.id}`);
+                    if (subtopicsData.success) {
+                        totalSubtopics += subtopicsData.data.length;
+                    }
+                }
+                
+                // Success!
+                resultElement.className = 'result success';
+                resultElement.innerHTML = `
+                    <h4>✅ Full workflow test completed successfully!</h4>
+                    <p><strong>Scheme ID:</strong> ${schemeId}</p>
+                    <p><strong>Subject ID:</strong> ${subjectId}</p>
+                    <p><strong>Subject Name:</strong> ${scheme.subject_name}</p>
+                    <p><strong>Topics Found:</strong> ${topics.length}</p>
+                    <p><strong>Total Subtopics:</strong> ${totalSubtopics}</p>
+                    <p><strong>Status:</strong> All APIs working correctly!</p>
+                `;
+                
+                log('Full workflow test completed successfully!');
+                
+            } catch (error) {
+                resultElement.className = 'result error';
+                resultElement.innerHTML = `
+                    <h4>❌ Workflow test failed</h4>
+                    <p>Error: ${error.message}</p>
+                `;
+                log(`Workflow test failed: ${error.message}`, 'error');
+            }
+        }
+
+        function showDatabaseInfo() {
+            const resultElement = document.getElementById('database-result');
+            resultElement.className = 'result';
+            resultElement.innerHTML = `
+                <h4>📊 Database Schema Information</h4>
+                <p>Based on your current setup:</p>
+                <ul>
+                    <li><strong>Schemes:</strong> Store in schemes_of_work table with subject_id foreign key</li>
+                    <li><strong>Subjects:</strong> Store in subjects table, linked to terms</li>
+                    <li><strong>Topics:</strong> Store in topics table, linked to subjects</li>
+                    <li><strong>Subtopics:</strong> Store in subtopics table, linked to topics</li>
+                </ul>
+                <p><strong>Recent schemes found:</strong></p>
+                <ul>
+                    <li>Scheme 49: Mathematics (Subject ID: 59)</li>
+                    <li>Scheme 48: Mathematics (Subject ID: 65)</li>
+                    <li>Scheme 47: Biology (Subject ID: 60)</li>
+                </ul>
+                <p><strong>Topic counts by subject:</strong></p>
+                <ul>
+                    <li>Subject 59: 2 topics</li>
+                    <li>Subject 60: 10 topics</li>
+                    <li>Subject 65: 2 topics</li>
+                </ul>
+            `;
+        }
+
+        // Initialize
+        window.onload = function() {
+            log('Debug tool initialized');
+            checkSchemeData();
+        };
+    </script>
+</body>
+</html> 

@@ -1,0 +1,42 @@
+# EDUSCHEME Project Structure Guide
+
+## Overview
+EDUSCHEME is an AI-powered educational management system with a Next.js frontend and FastAPI backend.
+
+## Key Workflow
+1. **Scheme Creation** → [frontend/src/app/dashboard/scheme-of-work/page.tsx](mdc:frontend/src/app/dashboard/scheme-of-work/page.tsx)
+2. **Timetable Planning** → [frontend/src/app/dashboard/timetable/page.tsx](mdc:frontend/src/app/dashboard/timetable/page.tsx)
+3. **AI Generation** → [frontend/src/app/dashboard/schemegen/page.tsx](mdc:frontend/src/app/dashboard/schemegen/page.tsx)
+
+## Critical Requirements
+- All schemes MUST have a valid `subject_id` (positive integer)
+- Subject selection is REQUIRED before scheme creation
+- Timetable page validates scheme has subject_id before loading
+
+## Backend Structure
+- **Models**: [backend/models.py](mdc:backend/models.py) - SQLAlchemy models
+- **Schemas**: [backend/schemas.py](mdc:backend/schemas.py) - Pydantic validation
+- **API Routes**: [backend/main.py](mdc:backend/main.py) - FastAPI endpoints
+- **Database**: [backend/database.py](mdc:backend/database.py) - DB configuration
+
+## Frontend Structure
+- **API Client**: [frontend/src/lib/apiClient.ts](mdc:frontend/src/lib/apiClient.ts) - HTTP client
+- **API Types**: [frontend/src/lib/api.ts](mdc:frontend/src/lib/api.ts) - TypeScript types
+- **Components**: [frontend/src/components/](mdc:frontend/src/components/) - Reusable UI
+
+## Data Flow
+1. User selects school → form → term → subject
+2. System creates scheme with valid subject_id
+3. Scheme ID stored in localStorage
+4. Timetable page loads scheme and validates subject_id
+5. User selects topics/subtopics and creates timetable
+6. AI generates comprehensive scheme of work
+
+## Error Handling
+- Missing subject_id → Clear localStorage, redirect to scheme creation
+- Invalid scheme → Show error with option to edit or create new
+- Network errors → Graceful fallback with retry options
+description:
+globs:
+alwaysApply: false
+---

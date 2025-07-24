@@ -146,7 +146,42 @@ app = FastAPI(
 )
 
 # ============= HELPER FUNCTIONS =============
-# Enhanced user lookup function is defined earlier in the file (line 53)
+# ADD THIS HELPER FUNCTION AFTER THE APP CREATION BUT BEFORE ENDPOINTS
+
+def get_or_create_user(db: Session, user_identifier: str) -> models.User:
+    """
+    Enhanced user lookup that tries multiple methods and creates user if needed
+    """
+    logger.info(f"🔍 Looking up user with identifier: '{user_identifier}'")
+    # Method 1: Try by Google ID
+    user = crud.user.get_by_google_id(db, google_id=user_identifier)
+    if user:
+        logger.info(f"✅ Found user by Google ID: {user.email}")
+        return user
+    # Method 2: Try by email (in case user_identifier is email)
+    user = crud.user.get_by_email(db, email=user_identifier)
+    if user:
+        logger.info(f"✅ Found user by email: {user.email}")
+        return user
+    # Method 3: If identifier looks like email, create user
+    if "@" in user_identifier:
+        logger.info(f"🔧 Creating new user with email: {user_identifier}")
+        try:
+            user_data = {
+                "google_id": user_identifier,  # Use email as google_id for now
+                "email": user_identifier,
+                "name": user_identifier.split("@")[0].title(),  # Use email prefix as name
+                "picture": None
+            }
+            user = crud.user.create(db=db, obj_in=schemas.UserCreate(**user_data))
+            logger.info(f"✅ Created new user: {user.email}")
+            return user
+        except Exception as e:
+            logger.error(f"❌ Failed to create user: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
+    # If we get here, we couldn't find or create the user
+    logger.error(f"❌ Could not find or create user with identifier: '{user_identifier}'")
+    return None
 
 # ============= DEBUG ENDPOINT =============
 # ADD THIS DEBUG ENDPOINT AFTER THE HELPER FUNCTIONS
@@ -333,15 +368,30 @@ async def create_scheme(
    try:
        logger.info(f"Creating scheme for user: {user_google_id}")
        logger.info(f"Scheme data: {scheme.dict()}")
+       
+       # Validate subject_id is provided and valid
+       if not scheme.subject_id or scheme.subject_id <= 0:
+           raise HTTPException(status_code=422, detail="Valid subject_id is required to create a scheme")
+       
+       # Verify subject exists
+       subject = db.query(models.Subject).filter(models.Subject.id == scheme.subject_id).first()
+       if not subject:
+           raise HTTPException(status_code=422, detail=f"Subject with ID {scheme.subject_id} not found")
+       
        # Get user by Google ID
        user = crud.user.get_by_google_id(db, google_id=user_google_id)
        if not user:
            raise HTTPException(status_code=404, detail="User not found. Please ensure user is created first.")
        logger.info(f"Found user: {user.id} - {user.email}")
+       
        # Create scheme data
        scheme_data = scheme.dict()
        scheme_data["user_id"] = user.id
-       logger.info(f"Creating scheme with data: {scheme_data}")
+       
+       # Ensure subject_name matches the actual subject
+       scheme_data["subject_name"] = subject.name
+       
+       logger.info(f"Creating scheme with validated data: {scheme_data}")
        db_scheme = crud.scheme.create(db=db, obj_in=scheme_data)
        logger.info(f"Scheme created successfully: {db_scheme.id}")
        return schemas.ResponseWrapper(
@@ -429,23 +479,11 @@ async def get_scheme(
             logger.warning(f"⚠️ Scheme belongs to user {scheme.user_id} but requested by user {user.id}")
             # For debugging, let's still return the scheme but with a warning
             # In production, you'd want to enforce this strictly
-        
-        # Validate that scheme has required subject_id
-        if not scheme.subject_id:
-            logger.error(f"❌ Scheme {scheme_id} is missing subject_id")
-            return schemas.ResponseWrapper(
-                success=False,
-                message="This scheme is incomplete (missing subject information). Please create a new scheme.",
-                data=None
-            )
         scheme_data = {
             "id": scheme.id,
             "school_name": scheme.school_name,
             "subject_name": scheme.subject_name,
-            "subject_id": scheme.subject_id,  # Add missing subject_id field
-            "school_level_id": scheme.school_level_id,  # Add missing foreign key fields
-            "form_grade_id": scheme.form_grade_id,
-            "term_id": scheme.term_id,
+            "subject_id": scheme.subject_id,  # Fix: Include the missing subject_id field
             "form_grade": scheme.form_grade.name if scheme.form_grade else "Unknown Grade",
             "form_grade_name": scheme.form_grade.name if scheme.form_grade else "Unknown Grade",
             "term": scheme.term.name if scheme.term else "Unknown Term",
@@ -1928,21 +1966,44 @@ async def generate_scheme_of_work(
                 data=None
             )
         
-        # Extract context and ensure Biology Form 2 Term 1 defaults
+        # Extract context - use provided data, but ensure it's tied to the actual scheme
         context = generation_data.get("context", {})
         
-        # Enhance context with Biology Form 2 Term 1 specifics
-        enhanced_context = {
-            "subject_name": "Biology",
-            "form_grade": "Form 2", 
-            "term": "Term 1",
-            "school_level": "Secondary",
-            "academic_year": "2025",
-            "total_teaching_periods": 48,
-            "total_weeks": 12,
-            "school_name": context.get("school_name", "Mangu High School"),
-            **context  # Override with any provided context
-        }
+        # Get the scheme ID if provided to load proper scheme-specific data
+        scheme_id = context.get("schemeId")
+        if scheme_id:
+            logger.info(f"Loading scheme-specific data for scheme {scheme_id}")
+            scheme = crud.scheme.get(db=db, id=int(scheme_id))
+            if scheme and scheme.user_id == user.id:
+                # Load the actual topics and subtopics for this scheme's subject
+                subject = scheme.subject if hasattr(scheme, 'subject') else None
+                if subject:
+                    # Get topics for this subject
+                    scheme_topics = crud.topic.get_by_subject(db=db, subject_id=subject.id)
+                    scheme_topic_data = [{"id": t.id, "title": t.title} for t in scheme_topics]
+                    
+                    # Get subtopics for these topics
+                    scheme_subtopics = []
+                    for topic in scheme_topics:
+                        subtopics = crud.subtopic.get_by_topic(db=db, topic_id=topic.id)
+                        for subtopic in subtopics:
+                            scheme_subtopics.append({
+                                "id": subtopic.id, 
+                                "title": subtopic.title,
+                                "topic_id": topic.id
+                            })
+                    
+                    # Override with actual scheme data
+                    context.update({
+                        "subject_name": scheme.subject_name,
+                        "school_name": scheme.school_name,
+                        "selectedTopics": scheme_topic_data,
+                        "selectedSubtopics": scheme_subtopics,
+                        "subject_id": scheme.subject_id
+                    })
+                    logger.info(f"Updated context with {len(scheme_topic_data)} topics and {len(scheme_subtopics)} subtopics for {scheme.subject_name}")
+        
+        enhanced_context = context
         
         config = generation_data.get("generation_config", generation_data.get("config", {
             "style": "detailed",
@@ -1950,7 +2011,8 @@ async def generate_scheme_of_work(
             "language_complexity": "intermediate"
         }))
         
-        logger.info(f"✅ User found: {user.email}, generating Biology Form 2 Term 1 scheme...")
+        subject_info = f"{enhanced_context.get('subject_name', 'Unknown')} {enhanced_context.get('form_grade', 'Unknown')} {enhanced_context.get('term', 'Unknown')}"
+        logger.info(f"✅ User found: {user.email}, generating {subject_info} scheme...")
         logger.info(f"Context: {enhanced_context}")
         
         try:
@@ -1967,7 +2029,7 @@ async def generate_scheme_of_work(
                 
                 return schemas.ResponseWrapper(
                     success=True,
-                    message="Biology Form 2 Term 1 scheme generated successfully",
+                    message=f"{subject_info} scheme generated successfully",
                     data={
                         "weeks": weeks_data,
                         "metadata": result.get("metadata", {}),
@@ -1983,7 +2045,7 @@ async def generate_scheme_of_work(
                 
                 return schemas.ResponseWrapper(
                     success=True,
-                    message="Biology Form 2 Term 1 scheme generated using template",
+                    message=f"{subject_info} scheme generated using template",
                     data={
                         "weeks": scheme_content["weeks"],
                         "metadata": fallback_result.get("metadata", {}),
@@ -2139,31 +2201,23 @@ async def download_scheme_pdf(
         from services.pdf_service import PDFService
         pdf_service = PDFService()
         
-        pdf_bytes = pdf_service.generate_scheme_pdf(pdf_content, {
-            "scheme_id": scheme_id,
-            "school_name": scheme.school_name,
-            "subject_name": scheme.subject_name,
-            "form_grade": scheme.form_grade.name if scheme.form_grade else "Unknown Form",
-            "term": scheme.term.name if scheme.term else "Unknown Term",
-            "academic_year": "2025"
-        })
+        pdf_buffer = pdf_service.generate_scheme_pdf(pdf_content, {"scheme_id": scheme_id})
         
         # Return PDF as download
         from fastapi.responses import StreamingResponse
         import io
         
+        pdf_buffer.seek(0)
         filename = f"{scheme.subject_name}_{scheme.form_grade.name if scheme.form_grade else 'Form'}_{scheme.term.name if scheme.term else 'Term'}_Scheme.pdf"
         
         return StreamingResponse(
-            io.BytesIO(pdf_bytes),
+            io.BytesIO(pdf_buffer.read()),
             media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
         
     except Exception as e:
         logger.error(f"❌ Error generating PDF: {str(e)}")
-        import traceback
-        logger.error(f"Full traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
 
 # Development endpoints (remove in production)

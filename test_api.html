@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Test - EDUSCHEME</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .result { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 3px; }
+        .error { background: #ffe6e6; border: 1px solid #ff9999; }
+        .success { background: #e6ffe6; border: 1px solid #99ff99; }
+        button { padding: 10px 15px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <h1>EDUSCHEME API Test</h1>
+    
+    <div class="test-section">
+        <h2>1. Health Check</h2>
+        <button onclick="testHealth()">Test Health Endpoint</button>
+        <div id="health-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Topics for Subject 59 (Mathematics)</h2>
+        <button onclick="testTopics()">Test Topics Endpoint</button>
+        <div id="topics-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. Subtopics for Topic 148 (Algebra)</h2>
+        <button onclick="testSubtopics()">Test Subtopics Endpoint</button>
+        <div id="subtopics-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. Subjects for Term 30</h2>
+        <button onclick="testSubjects()">Test Subjects Endpoint</button>
+        <div id="subjects-result" class="result"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+
+        async function makeRequest(endpoint, resultId) {
+            const resultElement = document.getElementById(resultId);
+            resultElement.innerHTML = 'Loading...';
+            
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultElement.className = 'result success';
+                    resultElement.innerHTML = `
+                        <h4>✅ Success</h4>
+                        <p><strong>Status:</strong> ${response.status}</p>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                } else {
+                    resultElement.className = 'result error';
+                    resultElement.innerHTML = `
+                        <h4>❌ Error</h4>
+                        <p><strong>Status:</strong> ${response.status}</p>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                resultElement.className = 'result error';
+                resultElement.innerHTML = `
+                    <h4>❌ Network Error</h4>
+                    <p>${error.message}</p>
+                `;
+            }
+        }
+
+        function testHealth() {
+            makeRequest('/health', 'health-result');
+        }
+
+        function testTopics() {
+            makeRequest('/api/v1/admin/topics/?subject_id=59', 'topics-result');
+        }
+
+        function testSubtopics() {
+            makeRequest('/api/v1/admin/subtopics/?topic_id=148', 'subtopics-result');
+        }
+
+        function testSubjects() {
+            makeRequest('/api/v1/admin/subjects/?term_id=30', 'subjects-result');
+        }
+    </script>
+</body>
+</html> 
