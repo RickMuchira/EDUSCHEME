@@ -112,6 +112,17 @@ function Sidebar() {
         })}
       </nav>
 
+      {/* Hierarchy Mini Tree */}
+      <div className="px-4 pb-2">
+        <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 mt-2">Hierarchy</div>
+        <div className="max-h-48 overflow-y-auto border rounded bg-gray-50 p-2">
+          {/* TODO: Add mini SchoolLevelTree here */}
+          <div className="text-xs text-gray-400 p-2">
+            Mini hierarchy tree will be displayed here
+          </div>
+        </div>
+      </div>
+
       {/* Quick Actions Section */}
       <div className="p-4 border-t border-gray-200 space-y-3">
         <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
